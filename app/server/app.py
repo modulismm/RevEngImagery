@@ -232,9 +232,22 @@ def _register(app):
 
     @app.post("/api/logout")
     def logout():
-        auth.destroy_session(_conn(), request.cookies.get(COOKIE, ""))
+        """Sign out, and give up gallery access with it.
+
+        These iPads are shared and passed along: signing out is the moment the
+        device changes hands. Leaving the gallery unlocked would hand the next
+        person the group's pictures and recordings without them entering the
+        code. Re-entering it is a few taps; the facilitator has it.
+        """
+        conn = _conn()
+        auth.destroy_session(conn, request.cookies.get(COOKIE, ""))
+        token = request.cookies.get(GALLERY_COOKIE, "")
+        if token:
+            conn.execute("DELETE FROM gallery_access WHERE token = ?", (token,))
+            conn.commit()
         resp = make_response(jsonify(ok=True))
         resp.delete_cookie(COOKIE, path="/", samesite="Lax")
+        resp.delete_cookie(GALLERY_COOKIE, path="/", samesite="Lax")
         return resp
 
     @app.get("/api/me")
@@ -324,7 +337,7 @@ def _register(app):
             "published, room_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (cid, user["id"], (data.get("name") or "Untitled").strip()[:120],
              (data.get("description") or "")[:2000], data.get("image_path"),
-             json.dumps(_clean_zones(data.get("zones") or [])),
+             json.dumps(_clean_zones(data.get("zones") or [], user["id"])),
              1 if data.get("published") else 0, room_id, db.now(), db.now()))
         conn.commit()
         return jsonify(canvas=_canvas_json(_canvas_or_none(cid), full=True)), 201
@@ -347,7 +360,8 @@ def _register(app):
              data.get("image_path") if data.get("image_path") is not None else row["image_path"],
              json.dumps(_clean_zones(data.get("zones")
                                      if data.get("zones") is not None
-                                     else json.loads(row["zones"]))),
+                                     else json.loads(row["zones"]),
+                                     row["owner_id"])),
              1 if data.get("published", row["published"]) else 0,
              data.get("room_id", row["room_id"]), db.now(), cid))
         conn.commit()
@@ -378,14 +392,29 @@ def _register(app):
             rel, mime = files.store(blob.read(), kind, UPLOAD_DIR)
         except ValueError as exc:
             return jsonify(error=str(exc)), 400
+        conn = _conn()
+        conn.execute("INSERT OR REPLACE INTO upload (path, owner_id, kind, created_at) "
+                     "VALUES (?,?,?,?)", (rel, current_user()["id"], kind, db.now()))
+        conn.commit()
         return jsonify(path=rel, mime=mime, url=f"/media/{rel}"), 201
 
     @app.get("/media/<path:rel>")
     def media(rel):
+        """Serve an upload, if the caller is allowed to hear it.
+
+        Previously this was open: a recording was only as private as its URL,
+        and a URL leaks through a shared link, a browser history or a log. A
+        participant's voice is not public just because someone has the address.
+        """
         target = files.safe_join(UPLOAD_DIR, rel)
         if not target:
             return jsonify(error="Not found."), 404
-        return send_file(target, conditional=True, max_age=31536000)
+        if not _may_fetch_upload(rel):
+            return jsonify(error="Not found."), 404
+        resp = send_file(target, conditional=True, max_age=0)
+        # Personal media must not sit in a shared cache.
+        resp.headers["Cache-Control"] = "private, no-store"
+        return resp
 
     # -------------------------------------------------------------- galleries --
     @app.get("/api/galleries")
@@ -675,6 +704,7 @@ def _register(app):
             return jsonify(error="This is the only administrator."), 400
 
         removed = _purge_media_for_owner(conn, uid)
+        conn.execute("DELETE FROM upload WHERE owner_id = ?", (uid,))
         conn.execute("DELETE FROM user WHERE id = ?", (uid,))
         conn.commit()
         return jsonify(ok=True, files_removed=removed)
@@ -752,8 +782,14 @@ _FX_NUM = {"reverbLevel": (0.0, 100.0), "pitch": (-12.0, 12.0),
            "lowFreq": (-40.0, 40.0), "midFreq": (-40.0, 40.0), "highFreq": (-40.0, 40.0)}
 
 
-def _clean_zones(zones):
-    """Clamp everything the client sends. The zone shape matches the original app."""
+def _clean_zones(zones, owner_id=None):
+    """Clamp everything the client sends, and refuse media the owner does not own.
+
+    `owner_id` is the canvas owner. A zone may point at the shared sound bank or
+    at a file that person uploaded, and at nothing else -- otherwise one
+    participant could attach another's recording to their own picture simply by
+    copying the URL.
+    """
     out = []
     for z in (zones or [])[:200]:
         if not isinstance(z, dict):
@@ -764,7 +800,8 @@ def _clean_zones(zones):
                  "type": kind,
                  # A generated zone is synthesised in the browser from its name,
                  # so it carries no media of its own.
-                 "url": None if kind == "generated" else _clean_media_url(z.get("url"))}
+                 "url": None if kind == "generated"
+                        else _clean_media_url(z.get("url"), owner_id)}
         for key, (lo, hi) in _ZONE_NUM.items():
             clean[key] = _clamp(z.get(key), lo, hi, 0.0 if key != "radius" else 200.0)
         fx = z.get("effects") if isinstance(z.get("effects"), dict) else {}
@@ -778,11 +815,12 @@ def _clean_zones(zones):
 _ALLOWED_URL_PREFIXES = ("/media/", "/static/sounds/")
 
 
-def _clean_media_url(url):
-    """Keep only same-origin references, so a zone cannot point at another host.
+def _clean_media_url(url, owner_id=None):
+    """Keep only same-origin references the canvas owner is entitled to use.
 
-    Rejects protocol-relative ("//evil.example/x") and traversal forms as well as
-    absolute URLs -- anything that is not one of our own two prefixes.
+    Rejects protocol-relative ("//evil.example/x") and traversal forms, anything
+    outside our own prefixes, and -- the point of `owner_id` -- an upload
+    belonging to somebody else.
     """
     if not isinstance(url, str):
         return None
@@ -790,7 +828,52 @@ def _clean_media_url(url):
         return None
     if not any(url.startswith(prefix) for prefix in _ALLOWED_URL_PREFIXES):
         return None
-    return url[:300]
+    url = url[:300]
+
+    if url.startswith("/static/sounds/"):
+        return url                       # the shared bank is for everyone
+
+    rel = url[len("/media/"):]
+    row = _conn().execute("SELECT owner_id FROM upload WHERE path = ?", (rel,)).fetchone()
+    if row is None:
+        # Unknown to the upload table: pre-dates it, or was never uploaded here.
+        return url if owner_id is None else None
+    if owner_id is not None and row["owner_id"] not in (None, owner_id):
+        return None                      # somebody else's recording
+    return url
+
+
+def _may_fetch_upload(rel):
+    """Who may hear a given file.
+
+    The owner and administrators always; a facilitator for their own group's
+    people; and anyone who may view a canvas that legitimately uses it -- which
+    is what lets a group listen to each other's pictures without being able to
+    take the recording for their own.
+    """
+    conn = _conn()
+    user = current_user()
+    row = conn.execute("SELECT owner_id FROM upload WHERE path = ?", (rel,)).fetchone()
+
+    if user and auth.is_admin(user):
+        return True
+    if row is not None and user and row["owner_id"] == user["id"]:
+        return True
+    if row is not None and row["owner_id"] and user:
+        owner = conn.execute("SELECT group_id FROM user WHERE id = ?",
+                             (row["owner_id"],)).fetchone()
+        if owner and owner["group_id"]:
+            room = conn.execute("SELECT owner_id FROM room WHERE id = ?",
+                                (owner["group_id"],)).fetchone()
+            if room and room["owner_id"] == user["id"]:
+                return True              # the facilitator running that group
+
+    url = f"/media/{rel}"
+    candidates = conn.execute(
+        "SELECT c.*, u.display_name AS owner_name FROM canvas c "
+        "JOIN user u ON u.id = c.owner_id "
+        "WHERE c.image_path = ? OR c.zones LIKE ?", (rel, f"%{url}%")).fetchall()
+    return any(may_view_canvas(c) for c in candidates)
 
 
 def _clamp(value, lo, hi, default):

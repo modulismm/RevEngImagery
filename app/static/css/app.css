@@ -420,3 +420,37 @@ audio { width: 100%; margin-top: 10px; }
   .zone-handle { width: 32px; height: 32px; right: -17px; }
   .zone-del { width: 44px; height: 44px; top: -20px; right: -20px; font-size: 1.2rem; }
 }
+
+/* --- presentation mode --------------------------------------------------- */
+/* A listener should discover the sounds, not read a map of them. In the editor
+ * a zone is a clear object to be moved and resized; here it is barely a
+ * suggestion -- enough that a cursor passing over feels intentional, not enough
+ * to give the picture away. */
+.zone-quiet {
+  background: radial-gradient(circle,
+              rgba(255, 255, 255, .07) 0%,
+              rgba(255, 255, 255, .03) 55%,
+              rgba(255, 255, 255, 0) 100%);
+  border-color: rgba(255, 255, 255, .10);
+  box-shadow: none;
+  cursor: pointer;
+  transition: background-color .35s ease, border-color .35s ease;
+}
+.zone-quiet:hover {
+  background: radial-gradient(circle,
+              rgba(255, 255, 255, .14) 0%,
+              rgba(255, 255, 255, .06) 55%,
+              rgba(255, 255, 255, 0) 100%);
+  border-color: rgba(255, 255, 255, .2);
+}
+/* Keyboard focus stays unmistakable: someone tabbing through has no cursor to
+ * follow, so subtlety there would make the piece unusable rather than mysterious. */
+.zone-quiet:focus-visible {
+  background: rgba(124, 108, 246, .3);
+  border-color: #fff;
+}
+/* A touch screen has no hover at all, so give the spots a faint steady presence
+ * -- otherwise a finger is hunting blind. */
+@media (pointer: coarse) {
+  .zone-quiet { border-color: rgba(255, 255, 255, .16); }
+}

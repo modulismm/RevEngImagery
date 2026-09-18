@@ -73,6 +73,17 @@ CREATE TABLE IF NOT EXISTS sound (
 );
 CREATE INDEX IF NOT EXISTS sound_owner ON sound(owner_id);
 
+-- Who uploaded each file. Without this a recording is only as private as its
+-- URL, and nothing stops one participant attaching another's voice to their own
+-- picture. A participant's recording of their own memories is theirs.
+CREATE TABLE IF NOT EXISTS upload (
+    path        TEXT PRIMARY KEY,       -- relative, e.g. "audio/ab12...webm"
+    owner_id    TEXT REFERENCES user(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS upload_owner ON upload(owner_id);
+
 -- A "room" is a group's own gallery: a named set of canvases behind a PIN.
 -- Workshops are run per group and each group should see only its own work,
 -- so access is per-gallery rather than per-account -- participants never sign in.
@@ -196,6 +207,33 @@ def _relax_role_check(conn):
             raise
 
 
+def _backfill_uploads(conn):
+    """Attribute files that pre-date the upload table, from the canvases using them.
+
+    Anything still unattributed is left with a NULL owner, which the media
+    handler treats as "only reachable through a canvas you may view" rather than
+    as public.
+    """
+    if conn.execute("SELECT 1 FROM upload LIMIT 1").fetchone():
+        return
+    import json as _json
+    for row in conn.execute("SELECT owner_id, image_path, zones FROM canvas"):
+        paths = []
+        if row["image_path"]:
+            paths.append((row["image_path"], "image"))
+        try:
+            for zone in _json.loads(row["zones"] or "[]"):
+                url = (zone or {}).get("url") or ""
+                if url.startswith("/media/"):
+                    paths.append((url[len("/media/"):], "audio"))
+        except (ValueError, AttributeError, TypeError):
+            pass
+        for rel, kind in paths:
+            conn.execute(
+                "INSERT OR IGNORE INTO upload (path, owner_id, kind, created_at) "
+                "VALUES (?,?,?,?)", (rel, row["owner_id"], kind, time.time()))
+
+
 def migrate(conn):
     """Bring the database up to date. Safe to run from several workers at once.
 
@@ -227,6 +265,7 @@ def migrate(conn):
     try:
         _ensure_columns(conn)
         _relax_role_check(conn)
+        _backfill_uploads(conn)
     finally:
         if holding:
             try:

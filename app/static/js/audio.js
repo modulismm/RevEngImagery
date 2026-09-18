@@ -194,7 +194,10 @@ export class ZonePlayer {
     if (!zone.url) return undefined;
 
     const el = new Audio();
-    el.crossOrigin = 'anonymous';
+    // Deliberately NOT crossOrigin='anonymous'. Every sound is same-origin, and
+    // that attribute puts the request in anonymous CORS mode, which can drop the
+    // session cookie -- and /media/ now requires it, because a participant's
+    // recording is not public just because someone has its URL.
     el.preload = 'auto';
     el.loop = false;
     el.src = zone.url;

@@ -230,7 +230,8 @@ def test_unknown_zone_type_falls_back_to_custom(client):
 
 
 @pytest.mark.parametrize("url,kept", [
-    ("/media/audio/a.webm", True),
+    # Not in the upload table, so not attributable to this owner: refused.
+    ("/media/audio/a.webm", False),
     ("/static/sounds/rain.mp3", True),
     ("https://evil.example/x.webm", False),
     ("//evil.example/x.webm", False),
@@ -528,3 +529,109 @@ def test_the_last_admin_cannot_be_deleted(client):
     me = client.get("/api/me").get_json()["user"]
     r = client.delete(f"/api/users/{me['id']}", headers={"X-CSRF-Token": csrf})
     assert r.status_code == 400
+
+
+# ------------------------------------------- a recording belongs to one person --
+
+WEBM_BYTES = b"\x1a\x45\xdf\xa3" + b"\x00" * 200
+
+
+def upload_audio(client, csrf):
+    return client.post("/api/upload/audio", headers={"X-CSRF-Token": csrf},
+                       data={"file": (io.BytesIO(WEBM_BYTES), "recording.webm")},
+                       content_type="multipart/form-data").get_json()
+
+
+def two_participants(client):
+    """Roger and Denise in the same group. Returns (slug, roger, denise)."""
+    csrf = login(client)
+    slug = make_gallery(client, csrf).get_json()["gallery"]["slug"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+
+    unlock(client, slug)
+    roger = join(client, slug, "Roger", "la maison au bord de la mer").get_json()
+    up = upload_audio(client, roger["csrf"])
+    cid = client.post("/api/canvases", json={"name": "La maison"},
+                      headers={"X-CSRF-Token": roger["csrf"]}).get_json()["canvas"]["id"]
+    client.put(f"/api/canvases/{cid}",
+               json={"zones": [{"url": up["url"], "radius": 200, "sound_name": "ma voix"}]},
+               headers={"X-CSRF-Token": roger["csrf"]})
+    roger.update(upload=up, canvas=cid)
+    client.post("/api/logout", headers={"X-CSRF-Token": roger["csrf"]})
+
+    unlock(client, slug)
+    denise = join(client, slug, "Denise", "le jardin de ma grand mere").get_json()
+    return slug, roger, denise
+
+
+def test_a_participant_cannot_reuse_another_persons_recording(client):
+    """The requirement: Roger's voice is his, and Denise cannot take it."""
+    _slug, roger, denise = two_participants(client)
+    h = {"X-CSRF-Token": denise["csrf"]}
+    cid = client.post("/api/canvases", json={"name": "Le jardin"},
+                      headers=h).get_json()["canvas"]["id"]
+    zones = client.put(f"/api/canvases/{cid}",
+                       json={"zones": [{"url": roger["upload"]["url"], "radius": 200}]},
+                       headers=h).get_json()["canvas"]["zones"]
+    assert zones[0]["url"] is None, "Denise attached Roger's recording to her own picture"
+
+
+def test_a_participant_can_use_their_own_recording(client):
+    _slug, _roger, denise = two_participants(client)
+    h = {"X-CSRF-Token": denise["csrf"]}
+    mine = upload_audio(client, denise["csrf"])
+    cid = client.post("/api/canvases", json={"name": "Le jardin"},
+                      headers=h).get_json()["canvas"]["id"]
+    zones = client.put(f"/api/canvases/{cid}",
+                       json={"zones": [{"url": mine["url"], "radius": 200}]},
+                       headers=h).get_json()["canvas"]["zones"]
+    assert zones[0]["url"] == mine["url"]
+
+
+def test_the_shared_sound_bank_is_still_usable_by_everyone(client):
+    _slug, _roger, denise = two_participants(client)
+    h = {"X-CSRF-Token": denise["csrf"]}
+    cid = client.post("/api/canvases", json={"name": "Le jardin"},
+                      headers=h).get_json()["canvas"]["id"]
+    zones = client.put(f"/api/canvases/{cid}",
+                       json={"zones": [{"url": "/static/sounds/rain.mp3", "radius": 200}]},
+                       headers=h).get_json()["canvas"]["zones"]
+    assert zones[0]["url"] == "/static/sounds/rain.mp3"
+
+
+def test_a_stranger_cannot_fetch_a_recording_by_its_url(client):
+    _slug, roger, denise = two_participants(client)
+    client.post("/api/logout", headers={"X-CSRF-Token": denise["csrf"]})
+    # No session, no group code: the URL alone must not be enough.
+    assert client.get(roger["upload"]["url"]).status_code == 404
+
+
+def test_the_group_can_still_hear_it_inside_rogers_picture(client):
+    """Denise may listen to Roger's canvas -- she just cannot take the file."""
+    _slug, roger, _denise = two_participants(client)
+    assert client.get(roger["upload"]["url"]).status_code == 200
+
+
+def test_another_group_cannot_fetch_it(client):
+    _slug, roger, denise = two_participants(client)
+    client.post("/api/logout", headers={"X-CSRF-Token": denise["csrf"]})
+    csrf = login(client)
+    other = make_gallery(client, csrf, "Groupe B", "5293").get_json()["gallery"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+    unlock(client, other["slug"], "5293")
+    join(client, other["slug"], "Paul", "une phrase bien a moi")
+    assert client.get(roger["upload"]["url"]).status_code == 404
+
+
+def test_the_owner_can_always_fetch_their_own(client):
+    _slug, roger, denise = two_participants(client)
+    client.post("/api/logout", headers={"X-CSRF-Token": denise["csrf"]})
+    unlock(client, _slug)
+    join(client, _slug, "Roger", "la maison au bord de la mer")
+    assert client.get(roger["upload"]["url"]).status_code == 200
+
+
+def test_recordings_are_not_stored_in_shared_caches(client):
+    _slug, roger, _denise = two_participants(client)
+    resp = client.get(roger["upload"]["url"])
+    assert "no-store" in resp.headers.get("Cache-Control", "")

@@ -305,14 +305,20 @@ async function viewPlay(id) {
     layer.replaceChildren(...canvas.zones.map((zone) => {
       const centre = makeMapper(img)(zone.x, zone.y);
       const size = Number(zone.radius) || 0;   // stored field is a diameter
+      // No visible name, and only the faintest shape: the point of the piece is
+      // that a listener finds the sounds by moving over the picture. A labelled
+      // circle announces the answer before they have looked.
+      //
+      // The name is still on aria-label, which is not visual -- someone using a
+      // screen reader has no other way to know a spot is there at all.
       const button = el('button', {
-        class: 'zone', 'data-readonly': '1',
+        class: 'zone zone-quiet', 'data-readonly': '1',
         style: `left:${centre.x}px;top:${centre.y}px;width:${size}px;height:${size}px`,
         'aria-label': `${t('playZone')}: ${zone.sound_name || ''}`,
         onfocus: () => { unlock(); player.update(centre.x, centre.y, makeMapper(img)); },
         onblur: () => player.allOff(),
         onclick: () => { unlock(); player.update(centre.x, centre.y, makeMapper(img)); },
-      }, el('span', { class: 'zone-label' }, zone.sound_name || ''));
+      });
       return button;
     }));
   };

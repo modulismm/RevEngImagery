@@ -30,6 +30,16 @@ no outbound request of any kind from the application.
   Files still referenced by someone else's canvas are left alone.
 - **Scoped access**: a participant sees their own work and their group's
   collective gallery. Groups cannot see each other.
+- **A recording belongs to the person who made it.** Uploads record their owner.
+  A sound spot may point only at the shared bank or at a file that canvas's
+  owner uploaded, so one participant cannot attach another's voice to their own
+  picture by copying its URL.
+- **Media is not public.** `/media/` requires authorisation: the owner, an
+  administrator, that group's facilitator, or someone entitled to view a canvas
+  that uses the file. A URL on its own is not enough, and responses are
+  `no-store` so recordings do not sit in shared caches.
+- **Signing out gives up gallery access too.** These iPads are shared and passed
+  along; signing out is the handover, and the next person must enter the code.
 - **Revocation**: changing a group's code immediately invalidates every device
   that had entered the old one.
 
