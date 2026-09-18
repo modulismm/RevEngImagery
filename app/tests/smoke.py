@@ -74,6 +74,10 @@ check("health endpoint", status == 200, status)
 
 status, data = call("POST", "/api/login",
                     {"name": "bear", "passphrase": "the blue kettle sings"})
+if status != 200:
+    print("  NOTE  sign-in failed -- this script assumes a FRESH instance whose admin\n"
+          "        passphrase is still 'the blue kettle sings'. Against an instance you\n"
+          "        have already set up, every authenticated check below will fail.")
 check("admin can sign in", status == 200 and data and data.get("csrf"), status)
 csrf = (data or {}).get("csrf", "")
 check("admin role reported", (data or {}).get("user", {}).get("role") == "admin")

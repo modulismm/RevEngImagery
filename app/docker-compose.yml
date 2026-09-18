@@ -4,9 +4,12 @@ services:
     container_name: imagery
     restart: unless-stopped
     ports:
-      # Bound to the docker0 gateway, NOT 0.0.0.0: reachable by
-      # nginx-proxy-manager, invisible to the LAN. See ../docs/deploy.md.
-      - "172.17.0.1:8010:8000"
+      # Never 0.0.0.0 -- that would expose this to the whole LAN, bypassing any
+      # proxy. IMAGERY_BIND picks the interface:
+      #   172.17.0.1  (default) docker0 gateway, for nginx-proxy-manager on armitage
+      #   127.0.0.1             localhost only, for `tailscale serve` in front
+      # See ../docs/deploy.md.
+      - "${IMAGERY_BIND:-172.17.0.1}:${IMAGERY_PORT:-8010}:8000"
     volumes:
       - imagery_data:/data
     environment:

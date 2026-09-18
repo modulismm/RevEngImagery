@@ -162,7 +162,13 @@ textarea { min-height: 92px; resize: vertical; }
   touch-action: none;
   user-select: none;
 }
-.zone-layer { position: absolute; inset: 0; }
+/* The layer sits over the image, so it must not swallow clicks: the editor
+ * needs a click on bare image to mean "add a zone here". Zones themselves opt
+ * back in. */
+.zone-layer { position: absolute; inset: 0; pointer-events: none; }
+.zone-layer .zone,
+.zone-layer .zone-handle,
+.zone-layer .zone-del { pointer-events: auto; }
 
 /* A zone is a real <button>: focusable, reachable by keyboard, announced by a
  * screen reader. The original app had no keyboard path to its zones at all. */
@@ -238,3 +244,33 @@ th { color: var(--text-dim); font-size: .85rem; text-transform: uppercase; lette
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+
+/* --- sound picker ------------------------------------------------------- */
+.tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.tab {
+  flex: 1 1 auto; min-height: 44px; padding: 8px 14px;
+  background: var(--surface-2); color: var(--text);
+  border: 2px solid var(--border-strong); border-radius: var(--radius);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.preset-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.preset {
+  min-height: 56px; padding: 10px;
+  background: var(--surface-2); color: var(--text);
+  border: 2px solid var(--border-strong); border-radius: var(--radius);
+  font: inherit; cursor: pointer; text-align: left;
+}
+.preset[aria-pressed="true"] { border-color: var(--accent); background: rgba(124,108,246,.22); }
+.preset .hz { display: block; font-size: .78rem; color: var(--text-dim); }
+
+.rec-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rec-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--danger); animation: pulse 1.1s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+.rec-time { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.2rem; }
+audio { width: 100%; margin-top: 10px; }

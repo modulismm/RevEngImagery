@@ -22,6 +22,29 @@ export const SMOOTHING_TC = 0.05;   // setTargetAtTime time constant on approach
 export const FADE_OUT = 0.2;        // linear ramp to silence on leaving a zone
 export const DEFAULT_VOLUME = 0.7;
 
+/**
+ * The original's built-in "generated" sounds: a single oscillator per zone,
+ * chosen by name. Frequencies and waveforms are exactly those it used, so a
+ * canvas made there sounds the same here.
+ *
+ * One deliberate difference: the original wired these straight to the
+ * destination, so the effects sliders did nothing for them. Here they run
+ * through the same chain as recorded sounds, so reverb and EQ work.
+ */
+export const GENERATED_PRESETS = [
+  { name: 'Rain Drops', freq: 200, type: 'square' },
+  { name: 'Bell Ding', freq: 800, type: 'sine' },
+  { name: 'Click', freq: 1000, type: 'square' },
+  { name: 'Beep', freq: 440, type: 'sine' },
+  { name: 'Soft Chime', freq: 600, type: 'triangle' },
+  { name: 'Pop', freq: 150, type: 'sawtooth' },
+];
+
+export function presetFor(name) {
+  return GENERATED_PRESETS.find((p) => p.name === name)
+    || { name: 'Beep', freq: 440, type: 'sine' };
+}
+
 /** Pitch is plain resampling: duration changes with pitch, as in the original. */
 export function playbackRateFor(semitones) {
   return Math.pow(2, (Number(semitones) || 0) / 12);
@@ -150,7 +173,25 @@ export class ZonePlayer {
 
   _track(zone) {
     let track = this.tracks.get(zone.id);
-    if (track || !zone.url || !this.ctx) return track;
+    if (track || !this.ctx) return track;
+
+    if (zone.type === 'generated') {
+      // An oscillator cannot be restarted, so it runs continuously from the
+      // moment the zone is first reached and is silenced by its gain instead.
+      const preset = presetFor(zone.sound_name);
+      const osc = this.ctx.createOscillator();
+      osc.type = preset.type;
+      osc.frequency.value = preset.freq * playbackRateFor((zone.effects || {}).pitch);
+      const chain = createChain(this.ctx, zone.effects || {}, this.impulse);
+      osc.connect(chain.input);
+      chain.output.connect(this.ctx.destination);
+      osc.start();
+      track = { el: null, osc, chain, playing: true, zoneId: zone.id, generated: true };
+      this.tracks.set(zone.id, track);
+      return track;
+    }
+
+    if (!zone.url) return undefined;
 
     const el = new Audio();
     el.crossOrigin = 'anonymous';
@@ -183,7 +224,11 @@ export class ZonePlayer {
     const k = (Number(fx.reverbLevel) || 0) / 100;
     dry.gain.value = 1 - k;
     wet.gain.value = k;
-    track.el.playbackRate = playbackRateFor(fx.pitch);
+    if (track.generated) {
+      track.osc.frequency.value = presetFor(zone.sound_name).freq * playbackRateFor(fx.pitch);
+    } else {
+      track.el.playbackRate = playbackRateFor(fx.pitch);
+    }
   }
 
   /** Pointer moved to (x, y) in the same units as zone.x/zone.y. */
@@ -191,7 +236,7 @@ export class ZonePlayer {
     if (!this.ready) return;
     const now = this.ctx.currentTime;
     for (const zone of this.zones) {
-      if (!zone.url) continue;
+      if (!zone.url && zone.type !== 'generated') continue;
       const centre = toPixels(zone.x, zone.y);
       const distance = Math.hypot(x - centre.x, y - centre.y);
       const track = isInside(zone, distance) ? this._track(zone) : this.tracks.get(zone.id);
@@ -200,10 +245,12 @@ export class ZonePlayer {
       if (isInside(zone, distance)) {
         if (!this.inside.has(zone.id)) {
           this.inside.add(zone.id);
-          track.el.currentTime = Number(zone.startTime) || 0;
-          track.el.playbackRate = playbackRateFor((zone.effects || {}).pitch);
-          const p = track.el.play();
-          if (p && p.catch) p.catch(() => { track.playing = false; });
+          if (!track.generated) {
+            track.el.currentTime = Number(zone.startTime) || 0;
+            track.el.playbackRate = playbackRateFor((zone.effects || {}).pitch);
+            const p = track.el.play();
+            if (p && p.catch) p.catch(() => { track.playing = false; });
+          }
           track.playing = true;
         }
         track.chain.masterGain.gain.setTargetAtTime(
@@ -222,6 +269,12 @@ export class ZonePlayer {
       const g = track.chain.masterGain.gain;
       if (immediate) g.value = 0;
       else g.linearRampToValueAtTime(0, this.ctx.currentTime + FADE_OUT);
+    }
+    if (track.generated) {
+      // Left running; its gain is already ramped to zero. Stopping the
+      // oscillator would make the zone unplayable a second time.
+      if (immediate) { try { track.osc.stop(); } catch (_) {} track.playing = false; }
+      return;
     }
     const pause = () => { try { track.el.pause(); } catch (_) {} track.playing = false; };
     if (immediate) pause(); else setTimeout(pause, FADE_OUT * 1000 + 50);

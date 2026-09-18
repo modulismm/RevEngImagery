@@ -203,3 +203,27 @@ def test_setup_token_is_single_use(client):
                         headers={"X-CSRF-Token": csrf}).get_json()["setup_url"].rsplit("/", 1)[-1]
     assert client.post(f"/api/setup/{token}", json={"passphrase": "les oiseaux chantent"}).status_code == 200
     assert client.post(f"/api/setup/{token}", json={"passphrase": "les oiseaux chantent"}).status_code == 404
+
+
+def test_generated_zone_keeps_its_preset_and_drops_url(client):
+    """A built-in tone is synthesised from its name, so it carries no media."""
+    csrf = login(client)
+    h = {"X-CSRF-Token": csrf}
+    cid = client.post("/api/canvases", json={"name": "c"}, headers=h).get_json()["canvas"]["id"]
+    z = client.put(f"/api/canvases/{cid}", json={"zones": [
+        {"type": "generated", "sound_name": "Bell Ding",
+         "url": "/media/audio/leftover.webm", "radius": 200}]},
+        headers=h).get_json()["canvas"]["zones"][0]
+    assert z["type"] == "generated"
+    assert z["sound_name"] == "Bell Ding"
+    assert z["url"] is None
+
+
+def test_unknown_zone_type_falls_back_to_custom(client):
+    csrf = login(client)
+    h = {"X-CSRF-Token": csrf}
+    cid = client.post("/api/canvases", json={"name": "c"}, headers=h).get_json()["canvas"]["id"]
+    z = client.put(f"/api/canvases/{cid}",
+                   json={"zones": [{"type": "something-else", "radius": 200}]},
+                   headers=h).get_json()["canvas"]["zones"][0]
+    assert z["type"] == "custom"

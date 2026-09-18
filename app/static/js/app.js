@@ -6,7 +6,8 @@
  */
 import { api, setCsrf } from './api.js';
 import { t, lang, setLang, LANGS, auditKeys } from './i18n.js';
-import { ZonePlayer, DEFAULT_VOLUME } from './audio.js';
+import { ZonePlayer, DEFAULT_VOLUME, GENERATED_PRESETS } from './audio.js';
+import { Recorder, isSupported as canRecord, filenameFor } from './recorder.js';
 
 const main = document.getElementById('main');
 const topbar = document.getElementById('topbar');
@@ -326,6 +327,155 @@ async function viewPlay(id) {
     stage));
 }
 
+
+/* ------------------------------------------------------- sound picker ---- */
+
+/**
+ * Choose the sound for a zone: record one, upload a file, or use one of the
+ * built-in tones. Rendered as three tabs so only one thing is on screen at a
+ * time -- the original crammed all of this into a floating panel that covered
+ * the toolbar.
+ */
+function buildSoundPicker(zone, onChange, onError) {
+  const wrap = el('div', { class: 'field' });
+  let tab = zone.type === 'generated' ? 'generated' : (zone.url ? 'upload' : 'record');
+  if (!canRecord() && tab === 'record') tab = 'upload';
+
+  const body = el('div', {});
+  const recorder = new Recorder();
+  let pending = null;          // Blob awaiting confirmation
+  let timer = null;
+
+  const current = () => {
+    if (zone.type === 'generated' && zone.sound_name) {
+      return el('p', { class: 'muted' }, `${t('currentSound')}: ${zone.sound_name}`);
+    }
+    if (zone.url) {
+      return el('div', {},
+        el('p', { class: 'muted' }, t('currentSound')),
+        el('audio', { controls: true, src: zone.url }));
+    }
+    return el('p', { class: 'muted' }, t('noSoundYet'));
+  };
+
+  const tabButton = (key, label) => el('button', {
+    class: 'tab', type: 'button', role: 'tab',
+    'aria-selected': String(tab === key),
+    onclick: () => { if (recorder.recording) recorder.cancel(); tab = key; render(); },
+  }, label);
+
+  function renderRecord() {
+    if (!canRecord()) {
+      body.replaceChildren(el('p', { class: 'muted' }, t('micBlocked')));
+      return;
+    }
+    if (pending) {
+      const url = URL.createObjectURL(pending);
+      body.replaceChildren(
+        el('audio', { controls: true, src: url }),
+        el('div', { class: 'row', style: 'margin-top:12px' },
+          el('button', {
+            class: 'btn btn-ok', type: 'button',
+            onclick: async () => {
+              try {
+                const file = new File([pending], filenameFor(pending),
+                                      { type: pending.type || 'audio/webm' });
+                const up = await api.upload('audio', file);
+                zone.url = up.url;
+                zone.type = 'custom';
+                pending = null;
+                URL.revokeObjectURL(url);
+                await onChange();
+              } catch (err) { onError(err.message); }
+            },
+          }, t('useThis')),
+          el('button', {
+            class: 'btn', type: 'button',
+            onclick: () => { pending = null; URL.revokeObjectURL(url); render(); },
+          }, t('recordAgain'))));
+      return;
+    }
+    if (recorder.recording) {
+      const time = el('span', { class: 'rec-time' }, '0.0s');
+      timer = setInterval(() => { time.textContent = recorder.elapsed().toFixed(1) + 's'; }, 100);
+      body.replaceChildren(
+        el('div', { class: 'rec-row' },
+          el('span', { class: 'rec-dot', 'aria-hidden': 'true' }),
+          el('span', { role: 'status' }, t('recording')),
+          time),
+        el('button', {
+          class: 'btn btn-danger', type: 'button', style: 'margin-top:12px',
+          onclick: async () => {
+            clearInterval(timer);
+            pending = await recorder.stop();
+            render();
+          },
+        }, t('stopRecording')));
+      return;
+    }
+    body.replaceChildren(
+      el('p', { class: 'muted' }, t('tabRecordHint')),
+      el('button', {
+        class: 'btn btn-danger', type: 'button',
+        onclick: async () => {
+          try { await recorder.start(); render(); }
+          catch (err) { onError(err.message); }
+        },
+      }, '● ' + t('startRecording')));
+  }
+
+  function renderUpload() {
+    const input = el('input', {
+      type: 'file', accept: 'audio/*', class: 'hidden',
+      onchange: async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const up = await api.upload('audio', file);
+          zone.url = up.url;
+          zone.type = 'custom';
+          await onChange();
+        } catch (err) { onError(err.message); }
+      },
+    });
+    body.replaceChildren(
+      el('button', { class: 'btn', type: 'button', onclick: () => input.click() },
+        t('chooseSound')),
+      input, current());
+  }
+
+  function renderGenerated() {
+    body.replaceChildren(el('div', { class: 'preset-grid' },
+      ...GENERATED_PRESETS.map((preset) => el('button', {
+        class: 'preset', type: 'button',
+        'aria-pressed': String(zone.type === 'generated' && zone.sound_name === preset.name),
+        onclick: async () => {
+          zone.type = 'generated';
+          zone.sound_name = preset.name;
+          zone.url = null;
+          await onChange();
+        },
+      }, preset.name, el('span', { class: 'hz' }, `${preset.freq} Hz · ${preset.type}`)))));
+  }
+
+  function render() {
+    clearInterval(timer);
+    wrap.replaceChildren(
+      el('label', {}, t('soundFor')),
+      el('div', { class: 'tabs', role: 'tablist' },
+        canRecord() ? tabButton('record', t('record')) : null,
+        tabButton('upload', t('upload')),
+        tabButton('generated', t('generated'))),
+      body);
+    if (tab === 'record') renderRecord();
+    else if (tab === 'generated') renderGenerated();
+    else renderUpload();
+  }
+
+  render();
+  return wrap;
+}
+
 /* ------------------------------------------------------------------ editor */
 
 async function viewEdit(id) {
@@ -415,11 +565,12 @@ async function viewEdit(id) {
     const box = img.getBoundingClientRect();
     zones.push({
       id: String(Date.now()),
-      sound_name: `${t('sound')} ${zones.length + 1}`,
       x: (event.clientX - box.left) / img.clientWidth * 100,
       y: (event.clientY - box.top) / img.clientHeight * 100,
       radius: 220, volume: DEFAULT_VOLUME, startTime: 0, endTime: 0,
-      type: 'custom', url: null,
+      // Defaults to a built-in tone, so a new zone makes a sound straight away
+      // rather than being silent until a file is attached.
+      type: 'generated', sound_name: 'Beep', url: null,
       effects: { reverbLevel: 0, pitch: 0, lowFreq: 0, midFreq: 0, highFreq: 0, isReversed: false },
     });
     selected = zones.length - 1;
@@ -446,17 +597,8 @@ async function viewEdit(id) {
       return;
     }
     const zone = zones[selected];
-    const soundInput = el('input', {
-      type: 'file', accept: 'audio/*', class: 'hidden',
-      onchange: async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        try {
-          const up = await api.upload('audio', file);
-          zone.url = up.url; await save(); renderPanel();
-        } catch (err) { msg.replaceChildren(notice(err.message)); }
-      },
-    });
+    const soundPicker = buildSoundPicker(zone, async () => { await save(); renderPanel(); },
+                                         (err) => msg.replaceChildren(notice(err)));
 
     panel.replaceChildren(
       el('h2', {}, t('zones')),
@@ -467,10 +609,7 @@ async function viewEdit(id) {
           oninput: (e) => { zone.sound_name = e.target.value; redraw(); },
           onchange: save,
         })),
-      el('div', { class: 'field' },
-        el('button', { class: 'btn', onclick: () => soundInput.click() },
-          zone.url ? '✓ ' + t('chooseSound') : t('chooseSound')),
-        soundInput),
+      soundPicker,
       slider('volume', Math.round((zone.volume ?? DEFAULT_VOLUME) * 100), 0, 100, 1,
         (v) => { zone.volume = v / 100; }, '%'),
       slider('reverb', zone.effects.reverbLevel || 0, 0, 100, 1,

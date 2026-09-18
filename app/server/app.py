@@ -448,10 +448,13 @@ def _clean_zones(zones):
     for z in (zones or [])[:200]:
         if not isinstance(z, dict):
             continue
+        kind = "generated" if z.get("type") == "generated" else "custom"
         clean = {"id": str(z.get("id") or db.new_id())[:64],
                  "sound_name": str(z.get("sound_name") or "")[:120],
-                 "type": "custom",
-                 "url": _clean_media_url(z.get("url"))}
+                 "type": kind,
+                 # A generated zone is synthesised in the browser from its name,
+                 # so it carries no media of its own.
+                 "url": None if kind == "generated" else _clean_media_url(z.get("url"))}
         for key, (lo, hi) in _ZONE_NUM.items():
             clean[key] = _clamp(z.get(key), lo, hi, 0.0 if key != "radius" else 200.0)
         fx = z.get("effects") if isinstance(z.get("effects"), dict) else {}
