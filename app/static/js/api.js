@@ -37,6 +37,14 @@ export const api = {
   updateCanvas: (id, data) => request('PUT', `/api/canvases/${id}`, data),
   deleteCanvas: (id) => request('DELETE', `/api/canvases/${id}`),
 
+  listGalleries: () => request('GET', '/api/galleries'),
+  createGallery: (data) => request('POST', '/api/galleries', data),
+  updateGallery: (id, data) => request('PUT', `/api/galleries/${id}`, data),
+  deleteGallery: (id) => request('DELETE', `/api/galleries/${id}`),
+  galleryPublic: (slug) => request('GET', `/api/g/${slug}`),
+  galleryUnlock: (slug, pin) => request('POST', `/api/g/${slug}/unlock`, { pin }),
+  galleryCanvases: (slug) => request('GET', `/api/g/${slug}/canvases`),
+
   listUsers: () => request('GET', '/api/users'),
   addUser: (data) => request('POST', '/api/users', data),
 

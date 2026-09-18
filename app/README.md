@@ -88,3 +88,41 @@ runtime, so the interface -- the canvas editor, drag and resize, and the audio
 engine itself -- has never been executed. The audio graph is transcribed exactly
 from the original's recovered parameters and the shapes are covered by the
 server-side round-trip tests, but **it needs someone to open it and listen.**
+
+## Galleries per group
+
+Workshops run per group, and each group should see only its own work, so access
+is per-gallery rather than per-account: participants never sign in.
+
+A facilitator creates a gallery under **Galeries**, gives it a name and a 4-8
+digit code, and hands out the link (`/#/g/<slug>`). Canvases are assigned to a
+gallery from the editor. A visitor opening that link sees the gallery's name,
+enters the code on a large keypad, and sees only that gallery.
+
+Security notes specific to this:
+
+- A PIN is short by design -- it gets read aloud to a room -- so the strength
+  comes from rate limiting, not the secret. Failures escalate the delay per
+  gallery **and** per IP, capped rather than locking out permanently.
+- Obvious codes (`1234`, `0000`, repeated digits) are refused.
+- Changing a gallery's code revokes every existing unlock immediately.
+- Unlocking one gallery grants nothing anywhere else, and a canvas in no gallery
+  is not readable without signing in.
+- The unlock endpoint is exempt from the session CSRF check, because the visitor
+  has no session yet; it is rate limited instead and a cross-origin caller
+  cannot read the reply.
+
+## Sound bank
+
+25 short sounds under `static/sounds/`, listed in `bank.json`, searchable in the
+editor. Three are permissively licensed recordings from Wikimedia Commons; the
+other 22 are synthesised by `tools/make_sounds.py` and are CC0. Rebuild with:
+
+```bash
+python3 tools/make_sounds.py app/static/sounds/_raw     # synthesise
+python3 tools/fetch_sounds.py app/static/sounds/_raw    # scrape (rate limited)
+tools/convert_sounds.sh app/static/sounds/_raw app/static/sounds
+python3 tools/build_bank.py
+```
+
+Credits in `docs/SOUND-ATTRIBUTION.md`.

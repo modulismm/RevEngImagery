@@ -43,6 +43,7 @@ function fakeFetch(url, opts = {}) {
   }
   if (url.startsWith('/api/canvases')) return json({ canvases: [CANVAS], scope: 'mine' });
   if (url === '/static/sounds/bank.json') return json([]);
+  if (url === '/api/galleries') return json({ galleries: [{ id: 'g1', title: 'Groupe A', slug: 'groupe-a' }] });
   return json({});
 }
 
@@ -163,6 +164,73 @@ if (img) {
     assert.equal(zones().length, 2, `expected 2 zones, saw ${zones().length}`);
   });
 }
+
+/* --- the resize regression ------------------------------------------------
+ * Dragging a zone's handle used to update a DOM node that select() had already
+ * replaced, so the circle never followed the pointer and only jumped size at
+ * the next unrelated re-render. These assert against the *live* node. */
+
+const firstZone = () => main.querySelector('.zone-layer .zone');
+
+check('selecting a zone keeps the same DOM node', () => {
+  const before = firstZone();
+  const rows = main.querySelectorAll('.zone-row');
+  assert.ok(rows.length >= 1, 'no zone rows');
+  rows[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  assert.equal(firstZone(), before,
+               'the zone layer was rebuilt on select -- a drag would lose its node');
+});
+
+check('selecting marks the zone active', () => {
+  assert.ok(firstZone().classList.contains('is-active'));
+});
+
+await (async () => {
+  const node = firstZone();
+  const handle = node.querySelector('.zone-handle');
+  const startWidth = parseFloat(node.style.width);
+
+  const pointer = (type, x, y, target) => {
+    const ev = new window.MouseEvent(type, { bubbles: true, clientX: x, clientY: y });
+    ev.pointerId = 1;
+    (target || window).dispatchEvent(ev);
+  };
+
+  handle.dispatchEvent(Object.assign(
+    new window.MouseEvent('pointerdown', { bubbles: true, clientX: 400, clientY: 300 }),
+    { pointerId: 1 }));
+  pointer('pointermove', 600, 300);
+  await sleep(20);
+
+  check('dragging the handle resizes the live node', () => {
+    const now = parseFloat(firstZone().style.width);
+    assert.notEqual(now, startWidth, `width stayed at ${startWidth}`);
+    assert.ok(now > 100, `width was ${now}`);
+  });
+
+  check('the radius follows the pointer rather than jumping a fixed amount', () => {
+    // radius is a diameter, so dragging the handle to 200px from centre => ~400.
+    const node2 = firstZone();
+    const width = parseFloat(node2.style.width);
+    const centreX = parseFloat(node2.style.left);
+    const expected = Math.abs(600 - centreX) * 2;
+    assert.ok(Math.abs(width - expected) < 2,
+              `width ${width} does not track pointer (expected ~${expected})`);
+  });
+
+  pointer('pointerup', 600, 300);
+  await sleep(20);
+})();
+
+check('a drag does not also add a zone', () => {
+  assert.equal(zones().length, 2, `expected 2 zones after the drag, saw ${zones().length}`);
+});
+
+check('the stage does not block panning when idle', () => {
+  // The iPad landscape failure: touch-action:none on the picture meant Safari
+  // refused to scroll the page, because the picture filled the viewport.
+  assert.ok(!main.querySelector('.stage-wrap').classList.contains('is-dragging'));
+});
 
 check('French is the default language', () => {
   assert.equal(window.document.documentElement.lang, 'fr',

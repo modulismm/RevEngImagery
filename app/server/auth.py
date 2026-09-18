@@ -210,3 +210,90 @@ def set_passphrase(conn, user_id: str, passphrase: str):
 
 def is_admin(user) -> bool:
     return bool(user) and user["role"] == "admin"
+
+
+# --------------------------------------------------------------------------- #
+# Gallery PINs
+# --------------------------------------------------------------------------- #
+#
+# A gallery PIN is not a password. It is a short code read aloud to a room of
+# participants, typed on a shared iPad, and rotated between workshops. Four to
+# eight digits is at most 10^8 and usually 10^4, so the strength has to come
+# from rate limiting rather than from the secret -- see `pin_delay`.
+
+PIN_MIN, PIN_MAX = 4, 8
+_PIN_FREE_ATTEMPTS = 3
+_PIN_MAX_DELAY = 60.0
+
+# Codes people reach for first, and which an attacker therefore tries first.
+_WEAK_PINS = {
+    "0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888",
+    "9999", "1234", "4321", "0123", "1212", "2020", "2026", "1379", "0852",
+    "123456", "654321", "111111", "000000", "123123",
+}
+
+
+def pin_problem(pin: str) -> str | None:
+    """Plain-language reason a PIN is unusable, or None."""
+    pin = (pin or "").strip()
+    if not pin.isdigit():
+        return "The code must be digits only."
+    if not (PIN_MIN <= len(pin) <= PIN_MAX):
+        return f"The code must be between {PIN_MIN} and {PIN_MAX} digits."
+    if pin in _WEAK_PINS:
+        return "That code is guessed too easily. Please choose another."
+    if len(set(pin)) == 1:
+        return "Please use more than one digit."
+    return None
+
+
+def hash_pin(pin: str) -> str:
+    return hash_passphrase(pin)
+
+
+def verify_pin(pin: str, stored: str) -> bool:
+    return verify_passphrase(pin, stored)
+
+
+def pin_delay(failures: int) -> float:
+    """Steeper than the passphrase curve, because the search space is tiny."""
+    if failures < _PIN_FREE_ATTEMPTS:
+        return 0.0
+    return min(_PIN_MAX_DELAY, 1.0 * (2 ** (failures - _PIN_FREE_ATTEMPTS)))
+
+
+GALLERY_ACCESS_DAYS = 30
+
+
+def grant_gallery(conn, token: str, room_id: str):
+    expires = time.time() + GALLERY_ACCESS_DAYS * 86400
+    conn.execute(
+        "INSERT INTO gallery_access (token, room_id, created_at, expires_at) "
+        "VALUES (?,?,?,?) ON CONFLICT(token, room_id) DO UPDATE SET expires_at = ?",
+        (token, room_id, time.time(), expires, expires))
+    conn.execute("DELETE FROM gallery_access WHERE expires_at < ?", (time.time(),))
+    conn.commit()
+    return expires
+
+
+def has_gallery(conn, token: str, room_id: str) -> bool:
+    if not token:
+        return False
+    row = conn.execute(
+        "SELECT 1 FROM gallery_access WHERE token = ? AND room_id = ? AND expires_at > ?",
+        (token, room_id, time.time())).fetchone()
+    return row is not None
+
+
+def revoke_gallery_tokens(conn, room_id: str):
+    """Called when a PIN changes: everyone must enter the new one."""
+    conn.execute("DELETE FROM gallery_access WHERE room_id = ?", (room_id,))
+    conn.commit()
+
+
+def slugify(title: str, fallback: str) -> str:
+    keep = [c.lower() if c.isalnum() else "-" for c in (title or "")]
+    slug = "".join(keep).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug[:48] or fallback

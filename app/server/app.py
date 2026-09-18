@@ -24,6 +24,7 @@ from . import auth, db, files
 UPLOAD_DIR = os.environ.get("IMAGERY_UPLOADS", "/data/uploads")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 COOKIE = "imagery_session"
+GALLERY_COOKIE = "imagery_gallery"
 MAX_BODY = 26 * 1024 * 1024
 
 
@@ -109,6 +110,24 @@ def _client_ip() -> str:
     return (fwd.split(",")[-1].strip() if fwd else request.remote_addr) or "?"
 
 
+def gallery_token():
+    """The browser's gallery-access token, minted on first use."""
+    if "gallery_token" not in g:
+        g.gallery_token = request.cookies.get(GALLERY_COOKIE) or secrets.token_urlsafe(24)
+        g.gallery_token_is_new = GALLERY_COOKIE not in request.cookies
+    return g.gallery_token
+
+
+def may_view_canvas(row):
+    """Owner, admin, or a browser that has entered this gallery's PIN."""
+    user = current_user()
+    if user and (row["owner_id"] == user["id"] or auth.is_admin(user)):
+        return True
+    if row["room_id"]:
+        return auth.has_gallery(_conn(), request.cookies.get(GALLERY_COOKIE, ""), row["room_id"])
+    return False
+
+
 def current_user():
     if "user" not in g:
         g.user = auth.user_for_session(_conn(), request.cookies.get(COOKIE, ""))
@@ -151,7 +170,11 @@ def _register(app):
         """
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return None
-        if request.path.startswith(("/api/login", "/api/setup")):
+        # These three are reached by someone who has no session yet, so there is
+        # no session-derived token to present. Each is rate limited instead, and
+        # a cross-origin caller cannot read the reply.
+        if request.path.startswith(("/api/login", "/api/setup")) or \
+                (request.path.startswith("/api/g/") and request.path.endswith("/unlock")):
             return None
         token = request.cookies.get(COOKIE, "")
         if not token or not hmac.compare_digest(
@@ -275,6 +298,10 @@ def _register(app):
         row = _canvas_or_none(cid)
         if row is None:
             return jsonify(error="That canvas was not found."), 404
+        if not may_view_canvas(row):
+            # Same answer as "no such canvas": whether an id exists is not
+            # something an unauthorised caller should be able to learn.
+            return jsonify(error="That canvas was not found."), 404
         return jsonify(canvas=_canvas_json(row, full=True))
 
     @app.post("/api/canvases")
@@ -351,6 +378,143 @@ def _register(app):
             return jsonify(error="Not found."), 404
         return send_file(target, conditional=True, max_age=31536000)
 
+    # -------------------------------------------------------------- galleries --
+    @app.get("/api/galleries")
+    @login_required
+    def list_galleries():
+        user, conn = current_user(), _conn()
+        if auth.is_admin(user):
+            rows = conn.execute(
+                "SELECT r.*, (SELECT COUNT(*) FROM canvas c WHERE c.room_id = r.id) AS canvases "
+                "FROM room r ORDER BY r.created_at").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT r.*, (SELECT COUNT(*) FROM canvas c WHERE c.room_id = r.id) AS canvases "
+                "FROM room r WHERE r.owner_id = ? ORDER BY r.created_at", (user["id"],)).fetchall()
+        return jsonify(galleries=[_gallery_json(r, manage=True) for r in rows])
+
+    @app.post("/api/galleries")
+    @login_required
+    def create_gallery():
+        data = request.get_json(silent=True) or {}
+        title = (data.get("title") or "").strip()
+        if not 2 <= len(title) <= 80:
+            return jsonify(error="Please give the gallery a name."), 400
+        pin = (data.get("pin") or "").strip()
+        problem = auth.pin_problem(pin)
+        if problem:
+            return jsonify(error=problem), 400
+
+        conn, rid = _conn(), db.new_id()
+        slug = auth.slugify(title, rid[:8])
+        # Slugs are unique; fall back to a suffix rather than refusing the name.
+        if conn.execute("SELECT 1 FROM room WHERE slug = ?", (slug,)).fetchone():
+            slug = f"{slug}-{rid[:6]}"
+        conn.execute(
+            "INSERT INTO room (id, owner_id, title, subtitle, slug, pin_hash, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (rid, current_user()["id"], title, (data.get("subtitle") or "")[:300],
+             slug, auth.hash_pin(pin), db.now()))
+        conn.commit()
+        row = conn.execute("SELECT r.*, 0 AS canvases FROM room r WHERE r.id = ?", (rid,)).fetchone()
+        return jsonify(gallery=_gallery_json(row, manage=True)), 201
+
+    @app.put("/api/galleries/<rid>")
+    @login_required
+    def update_gallery(rid):
+        conn = _conn()
+        row = conn.execute("SELECT * FROM room WHERE id = ?", (rid,)).fetchone()
+        if row is None:
+            return jsonify(error="That gallery was not found."), 404
+        if not _may_manage_gallery(row):
+            return jsonify(error="That gallery belongs to someone else."), 403
+        data = request.get_json(silent=True) or {}
+        title = (data.get("title") or row["title"]).strip()[:80]
+        subtitle = (data.get("subtitle") if data.get("subtitle") is not None
+                    else row["subtitle"] or "")[:300]
+        pin = (data.get("pin") or "").strip()
+        if pin:
+            problem = auth.pin_problem(pin)
+            if problem:
+                return jsonify(error=problem), 400
+            conn.execute("UPDATE room SET pin_hash = ? WHERE id = ?", (auth.hash_pin(pin), rid))
+            # A new code means the old one stops working everywhere.
+            auth.revoke_gallery_tokens(conn, rid)
+        conn.execute("UPDATE room SET title = ?, subtitle = ? WHERE id = ?", (title, subtitle, rid))
+        conn.commit()
+        row = conn.execute(
+            "SELECT r.*, (SELECT COUNT(*) FROM canvas c WHERE c.room_id = r.id) AS canvases "
+            "FROM room r WHERE r.id = ?", (rid,)).fetchone()
+        return jsonify(gallery=_gallery_json(row, manage=True))
+
+    @app.delete("/api/galleries/<rid>")
+    @login_required
+    def delete_gallery(rid):
+        conn = _conn()
+        row = conn.execute("SELECT * FROM room WHERE id = ?", (rid,)).fetchone()
+        if row is None:
+            return jsonify(error="That gallery was not found."), 404
+        if not _may_manage_gallery(row):
+            return jsonify(error="That gallery belongs to someone else."), 403
+        # Canvases survive; they simply return to no gallery (ON DELETE SET NULL).
+        conn.execute("DELETE FROM room WHERE id = ?", (rid,))
+        conn.commit()
+        return jsonify(ok=True)
+
+    @app.get("/api/g/<slug>")
+    def gallery_public(slug):
+        """What a visitor may know before entering the code: the name, nothing else."""
+        row = _conn().execute("SELECT * FROM room WHERE slug = ?", (slug,)).fetchone()
+        if row is None:
+            return jsonify(error="That gallery was not found."), 404
+        unlocked = (auth.has_gallery(_conn(), request.cookies.get(GALLERY_COOKIE, ""), row["id"])
+                    or _may_manage_gallery(row))
+        return jsonify(gallery=_gallery_json(row), unlocked=unlocked)
+
+    @app.post("/api/g/<slug>/unlock")
+    def gallery_unlock(slug):
+        conn, ip = _conn(), _client_ip()
+        row = conn.execute("SELECT * FROM room WHERE slug = ?", (slug,)).fetchone()
+        if row is None:
+            return jsonify(error="That gallery was not found."), 404
+
+        bucket = f"gallery:{row['id']}"
+        delay = auth.pin_delay(auth.failed_recently(conn, bucket, ip))
+        if delay:
+            time.sleep(min(delay, 3.0))
+            if delay >= auth._PIN_MAX_DELAY:
+                return jsonify(error="Too many tries. Please wait a minute and try again."), 429
+
+        pin = ((request.get_json(silent=True) or {}).get("pin") or "").strip()
+        ok = bool(row["pin_hash"]) and auth.verify_pin(pin, row["pin_hash"])
+        auth.record_attempt(conn, bucket, ip, ok)
+        if not ok:
+            return jsonify(error="That code is not right."), 401
+
+        token = gallery_token()
+        expires = auth.grant_gallery(conn, token, row["id"])
+        resp = make_response(jsonify(gallery=_gallery_json(row), unlocked=True))
+        resp.set_cookie(GALLERY_COOKIE, token, httponly=True, samesite="Lax",
+                        secure=os.environ.get("IMAGERY_SECURE_COOKIE", "1") == "1",
+                        expires=expires, path="/")
+        return resp
+
+    @app.get("/api/g/<slug>/canvases")
+    def gallery_canvases(slug):
+        conn = _conn()
+        row = conn.execute("SELECT * FROM room WHERE slug = ?", (slug,)).fetchone()
+        if row is None:
+            return jsonify(error="That gallery was not found."), 404
+        if not (auth.has_gallery(conn, request.cookies.get(GALLERY_COOKIE, ""), row["id"])
+                or _may_manage_gallery(row)):
+            return jsonify(error="Please enter the code for this gallery."), 403
+        rows = conn.execute(
+            "SELECT c.*, u.display_name AS owner_name FROM canvas c "
+            "JOIN user u ON u.id = c.owner_id WHERE c.room_id = ? "
+            "ORDER BY c.updated_at DESC", (row["id"],)).fetchall()
+        return jsonify(gallery=_gallery_json(row),
+                       canvases=[_canvas_json(r) for r in rows])
+
     # ----------------------------------------------------------------- admin --
     @app.get("/api/users")
     @admin_required
@@ -384,6 +548,7 @@ def _register(app):
     @app.get("/setup/<path:_t>")
     @app.get("/canvas/<path:_t>")
     @app.get("/gallery")
+    @app.get("/g/<path:_t>")
     def index(_t=None):
         resp = send_from_directory(STATIC_DIR, "index.html")
         resp.headers["Cache-Control"] = "no-cache, must-revalidate"
@@ -502,6 +667,21 @@ def _canvas_or_none(cid):
     return _conn().execute(
         "SELECT c.*, u.display_name AS owner_name FROM canvas c "
         "JOIN user u ON u.id = c.owner_id WHERE c.id = ?", (cid,)).fetchone()
+
+
+def _gallery_json(row, manage=False):
+    out = {"id": row["id"], "title": row["title"], "slug": row["slug"],
+           "subtitle": row["subtitle"]}
+    if manage:
+        out["canvases"] = row["canvases"] if "canvases" in row.keys() else 0
+        out["has_pin"] = bool(row["pin_hash"])
+        out["created_at"] = row["created_at"]
+    return out
+
+
+def _may_manage_gallery(row):
+    user = current_user()
+    return bool(user) and (row["owner_id"] == user["id"] or auth.is_admin(user))
 
 
 def _may_edit(row):

@@ -85,6 +85,7 @@ function renderNav() {
 
   nav.append(
     el('a', { class: 'btn', href: '#/' }, t('galleries')),
+    el('a', { class: 'btn', href: '#/galleries' }, t('galleriesAdmin')),
     state.user.role === 'admin' ? el('a', { class: 'btn', href: '#/people' }, t('people')) : null,
     picker,
     el('button', {
@@ -465,9 +466,35 @@ function buildSoundPicker(zone, onChange, onError) {
         body.replaceChildren(el('p', { class: 'muted' }, t('bankEmpty')));
         return;
       }
-      body.replaceChildren(el('div', { class: 'preset-grid' },
-        ...sounds.map((sound) => {
-          const label = lang() === 'fr' ? (sound.label_fr || sound.label_en) : sound.label_en;
+
+      const labelOf = (sound) =>
+        (lang() === 'fr' ? (sound.label_fr || sound.label_en) : sound.label_en);
+
+      const results = el('div', { class: 'preset-grid bank-grid' });
+
+      // A filter rather than fixed categories: the brief left the categories
+      // open, because they depend on what participants ask for.
+      const search = el('input', {
+        type: 'search', class: 'bank-search', 'aria-label': t('searchSounds'),
+        placeholder: t('searchSounds'),
+        oninput: (e) => paint(e.target.value),
+      });
+
+      function paint(query) {
+        const needle = (query || '').trim().toLowerCase();
+        const matches = sounds.filter((sound) =>
+          !needle
+          || labelOf(sound).toLowerCase().includes(needle)
+          || sound.label_en.toLowerCase().includes(needle)
+          || sound.label_fr.toLowerCase().includes(needle)
+          || sound.slug.includes(needle));
+
+        if (!matches.length) {
+          results.replaceChildren(el('p', { class: 'muted' }, t('noMatch')));
+          return;
+        }
+        results.replaceChildren(...matches.map((sound) => {
+          const label = labelOf(sound);
           return el('div', { class: 'bank-item' },
             el('button', {
               class: 'preset', type: 'button',
@@ -478,9 +505,13 @@ function buildSoundPicker(zone, onChange, onError) {
                 if (!zone.sound_name || zone.sound_name === 'Beep') zone.sound_name = label;
                 await onChange();
               },
-            }, label, el('span', { class: 'hz' }, sound.licence || '')),
+            }, label),
             el('audio', { controls: true, preload: 'none', src: sound.url }));
-        })));
+        }));
+      }
+
+      paint('');
+      body.replaceChildren(search, results);
     });
   }
 
@@ -537,6 +568,7 @@ async function viewEdit(id) {
   const model = {
     name: canvas.name,
     imagePath: canvas.image_path,
+    roomId: canvas.room_id,
     zones: canvas.zones.slice(),
   };
   let selectedId = null;
@@ -591,19 +623,25 @@ async function viewEdit(id) {
     node.style.height = `${size}px`;
   }
 
+  // id -> live DOM node. A drag holds one of these, so selection must never
+  // rebuild the layer underneath it: that detaches the node being dragged and
+  // the circle silently stops following the pointer.
+  const nodes = new Map();
+
   /** Rebuild the zone nodes. Structural only -- never called during a drag. */
   function renderZones() {
+    nodes.clear();
     layer.replaceChildren(...model.zones.map((zone) => {
       const node = el('div', {
         class: `zone${selectedId === zone.id ? ' is-active' : ''}`,
         'data-zone': zone.id,
         title: zone.sound_name || '',
-        onpointerdown: (event) => beginDrag(event, zone, node, 'move'),
+        onpointerdown: (event) => beginDrag(event, zone, 'move'),
       },
         el('span', { class: 'zone-label' }, zone.sound_name || ''),
         el('div', {
           class: 'zone-handle', title: t('resizeZone'),
-          onpointerdown: (event) => beginDrag(event, zone, node, 'resize'),
+          onpointerdown: (event) => beginDrag(event, zone, 'resize'),
         }),
         el('button', {
           class: 'zone-del', type: 'button', 'aria-label': `${t('removeZone')}: ${zone.sound_name || ''}`,
@@ -612,14 +650,28 @@ async function viewEdit(id) {
           onclick: (event) => { event.stopPropagation(); removeZone(zone.id); },
         }, '✕'));
       placeZone(zone, node);
+      nodes.set(zone.id, node);
       return node;
     }));
   }
 
-  function beginDrag(event, zone, node, mode) {
+  function beginDrag(event, zone, mode) {
     event.preventDefault();
     event.stopPropagation();
     select(zone.id);
+
+    const node = nodes.get(zone.id);
+    if (!node) return;
+
+    // Pointer capture keeps the gesture bound to this element even when the
+    // finger leaves it, which is the difference between a usable and a
+    // maddening drag on a touch screen.
+    try { node.setPointerCapture(event.pointerId); } catch (_) { /* older Safari */ }
+    // Suppress page panning for the duration of the drag only. A blanket
+    // touch-action:none on the stage is what made the iPad unscrollable in
+    // landscape, where the picture fills the whole viewport.
+    stage.classList.add('is-dragging');
+
     const box = img.getBoundingClientRect();
     const width = img.clientWidth || 1;
     const height = img.clientHeight || 1;
@@ -637,10 +689,15 @@ async function viewEdit(id) {
       }
       placeZone(zone, node);          // move the one node, do not rebuild the layer
     };
-    const end = () => {
+    const end = (ev) => {
       removeEventListener('pointermove', move);
       removeEventListener('pointerup', end);
       removeEventListener('pointercancel', end);
+      stage.classList.remove('is-dragging');
+      try { if (ev) node.releasePointerCapture(ev.pointerId); } catch (_) { /* ignore */ }
+      // The pointerup that ends a drag would otherwise also register as a click
+      // on the picture, adding an unwanted zone right where the drag finished.
+      suppressNextClick = true;
       saveNow();
     };
     addEventListener('pointermove', move);
@@ -650,9 +707,10 @@ async function viewEdit(id) {
 
   /* --------------------------------------------------------- zone actions -- */
 
+  /** Selection is a class change, not a re-render -- see the note on `nodes`. */
   function select(zid) {
     selectedId = zid;
-    renderZones();
+    for (const [id, node] of nodes) node.classList.toggle('is-active', id === zid);
     renderPanel();
   }
 
@@ -678,7 +736,8 @@ async function viewEdit(id) {
     };
     model.zones.push(zone);
     msg.replaceChildren();
-    select(zone.id);
+    renderZones();          // structural: the new zone needs a node
+    select(zone.id);        // selection only toggles classes
     saveNow();
   }
 
@@ -692,7 +751,10 @@ async function viewEdit(id) {
 
   // Clicking bare image adds a spot there. This is a shortcut; the button in
   // the toolbar is the discoverable path, and the hint below the stage says so.
+  let suppressNextClick = false;
+
   img.addEventListener('click', (event) => {
+    if (suppressNextClick) { suppressNextClick = false; return; }
     if (event.target !== img || !hasImage()) return;
     const box = img.getBoundingClientRect();
     const width = img.clientWidth || 1;
@@ -801,6 +863,32 @@ async function viewEdit(id) {
       }, t('removeZone')));
   }
 
+  /* --------------------------------------------------------------- gallery -- */
+
+  // Which group's gallery this picture appears in. Populated lazily: a
+  // facilitator with no galleries yet should not see an empty control.
+  const gallerySelect = el('div', { class: 'field' });
+  (async () => {
+    let galleries = [];
+    try { galleries = (await api.listGalleries()).galleries || []; } catch (_) { return; }
+    if (!galleries.length) return;
+    const select = el('select', {
+      id: 'cgallery',
+      onchange: async (e) => {
+        model.roomId = e.target.value || null;
+        await api.updateCanvas(id, { room_id: model.roomId });
+        status.textContent = t('savedOk');
+        setTimeout(() => { if (status.textContent === t('savedOk')) status.textContent = ''; }, 2000);
+      },
+    },
+      el('option', { value: '' }, t('noGallery')),
+      ...galleries.map((gallery) => el('option', {
+        value: gallery.id, selected: gallery.id === model.roomId,
+      }, gallery.title)));
+    gallerySelect.replaceChildren(
+      el('label', { for: 'cgallery' }, t('assignGallery')), select);
+  })();
+
   /* ----------------------------------------------------------------- mount -- */
 
   const relayout = () => renderZones();
@@ -826,8 +914,194 @@ async function viewEdit(id) {
     msg,
     el('div', { class: 'field' },
       el('label', { for: 'cname' }, t('nameThis')), nameInput),
+    gallerySelect,
     el('p', { class: 'muted' }, hasImage() ? t('clickToAdd') : t('needPicture')),
     el('div', { class: 'editor-grid' }, stage, panel)));
+}
+
+/* --------------------------------------------------------------- galleries */
+
+/**
+ * The code screen a participant sees.
+ *
+ * Built for a shared iPad in a workshop: a large keypad, big digits, and no
+ * keyboard required. A hardware keyboard still works -- the digits go to the
+ * same place -- but nothing depends on one being there.
+ */
+async function viewGalleryGate(slug) {
+  let info;
+  try {
+    info = await api.galleryPublic(slug);
+  } catch (err) {
+    show(el('div', { class: 'page' }, notice(err.message)));
+    return;
+  }
+  if (info.unlocked) { renderGallery(slug); return; }
+
+  let pin = '';
+  const dots = el('div', { class: 'pin-display', role: 'status', 'aria-live': 'polite' });
+  const box = el('div', {});
+
+  const paint = () => {
+    dots.replaceChildren(...Array.from({ length: Math.max(pin.length, 4) }, (_, i) =>
+      el('span', { class: `pin-dot${i < pin.length ? ' filled' : ''}` })));
+    dots.setAttribute('aria-label', `${pin.length} ${t('galleryPin')}`);
+  };
+
+  const submit = async () => {
+    box.replaceChildren();
+    try {
+      await api.galleryUnlock(slug, pin);
+      renderGallery(slug);
+    } catch (err) {
+      box.replaceChildren(notice(err.message || t('wrongPin')));
+      pin = '';
+      paint();
+    }
+  };
+
+  const press = (digit) => {
+    if (pin.length >= 8) return;
+    pin += digit;
+    paint();
+    if (pin.length >= 4) box.replaceChildren();
+  };
+
+  const keypad = el('div', { class: 'keypad' },
+    ...['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) =>
+      el('button', { class: 'key', type: 'button', onclick: () => press(d) }, d)),
+    el('button', {
+      class: 'key key-alt', type: 'button', 'aria-label': t('clear'),
+      onclick: () => { pin = ''; paint(); },
+    }, '✕'),
+    el('button', { class: 'key', type: 'button', onclick: () => press('0') }, '0'),
+    el('button', {
+      class: 'key key-alt', type: 'button', 'aria-label': t('backspace'),
+      onclick: () => { pin = pin.slice(0, -1); paint(); },
+    }, '⌫'));
+
+  paint();
+
+  const page = el('div', { class: 'gate' },
+    el('div', { class: 'card gate-card' },
+      el('h1', {}, info.gallery.title),
+      el('p', { class: 'muted' }, t('enterPinHint')),
+      box,
+      dots,
+      keypad,
+      el('button', {
+        class: 'btn btn-primary btn-lg', type: 'button', style: 'width:100%',
+        onclick: submit,
+      }, t('unlock'))));
+
+  // A physical keyboard should work too, without being required.
+  page.addEventListener('keydown', (event) => {
+    if (/^[0-9]$/.test(event.key)) press(event.key);
+    else if (event.key === 'Backspace') { pin = pin.slice(0, -1); paint(); }
+    else if (event.key === 'Enter') submit();
+  });
+
+  show(page);
+}
+
+/** The group's own gallery, once the code has been entered. */
+async function renderGallery(slug) {
+  let data;
+  try {
+    data = await api.galleryCanvases(slug);
+  } catch (err) {
+    viewGalleryGate(slug);
+    return;
+  }
+  const cards = data.canvases.map((canvas) => el('div', { class: 'card' },
+    canvas.image_url
+      ? el('img', { class: 'thumb', src: canvas.image_url, alt: canvas.name, loading: 'lazy' })
+      : el('div', { class: 'thumb' }),
+    el('div', { class: 'card-body' },
+      el('h2', {}, canvas.name),
+      el('p', { class: 'muted' }, `${canvas.sound_count} ${plural(canvas.sound_count)}`),
+      el('a', { class: 'btn btn-primary', href: `#/play/${canvas.id}`, style: 'width:100%' },
+        t('open')))));
+
+  show(el('div', { class: 'page' },
+    el('h1', {}, data.gallery.title),
+    data.gallery.subtitle ? el('p', { class: 'muted' }, data.gallery.subtitle) : null,
+    cards.length
+      ? el('div', { class: 'grid' }, ...cards)
+      : el('div', { class: 'card card-body center' }, el('p', {}, t('galleryEmpty')))));
+}
+
+/** Facilitator view: create a gallery per group and hand out its code. */
+async function viewGalleriesAdmin() {
+  const { galleries } = await api.listGalleries();
+  const box = el('div', {});
+
+  const titleInput = el('input', { type: 'text', id: 'gtitle' });
+  const pinInput = el('input', {
+    type: 'text', id: 'gpin', inputmode: 'numeric', autocomplete: 'off',
+    pattern: '[0-9]*', maxlength: '8',
+  });
+
+  const create = async (event) => {
+    event.preventDefault();
+    box.replaceChildren();
+    try {
+      await api.createGallery({ title: titleInput.value.trim(), pin: pinInput.value.trim() });
+      route();
+    } catch (err) { box.replaceChildren(notice(err.message)); }
+  };
+
+  const rows = galleries.map((gallery) => {
+    const link = `${location.origin}/#/g/${gallery.slug}`;
+    const newPin = el('input', {
+      type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '8',
+      'aria-label': t('changePin'), style: 'max-width:12ch',
+    });
+    return el('div', { class: 'card panel' },
+      el('h2', {}, gallery.title),
+      el('p', { class: 'muted' },
+        `${gallery.canvases} ${gallery.canvases === 1 ? t('picture') : t('pictures')}`),
+      el('div', { class: 'field' },
+        el('label', {}, t('galleryLink')),
+        el('input', {
+          type: 'text', value: link, readonly: true,
+          onclick: (e) => e.target.select(),
+        })),
+      el('div', { class: 'row' },
+        newPin,
+        el('button', {
+          class: 'btn', type: 'button',
+          onclick: async () => {
+            try {
+              await api.updateGallery(gallery.id, { pin: newPin.value.trim() });
+              box.replaceChildren(notice(t('pinChanged'), 'ok'));
+              route();
+            } catch (err) { box.replaceChildren(notice(err.message)); }
+          },
+        }, t('changePin')),
+        el('button', {
+          class: 'btn btn-danger row-end', type: 'button',
+          onclick: async () => {
+            if (!confirm(t('deleteGalleryConfirm', { name: gallery.title }))) return;
+            await api.deleteGallery(gallery.id);
+            route();
+          },
+        }, t('deleteGallery'))));
+  });
+
+  show(el('div', { class: 'page' },
+    el('h1', {}, t('galleriesAdmin')),
+    box,
+    el('div', { class: 'card panel' },
+      el('h2', {}, t('newGallery')),
+      el('form', { onsubmit: create },
+        el('div', { class: 'field' },
+          el('label', { for: 'gtitle' }, t('galleryName')), titleInput),
+        el('div', { class: 'field' },
+          el('label', { for: 'gpin' }, t('galleryPin')), pinInput,
+          el('div', { class: 'hint' }, t('galleryPinHint'))),
+        el('button', { class: 'btn btn-primary', type: 'submit' }, t('newGallery')))),
+    el('div', { class: 'grid', style: 'margin-top:20px' }, ...rows)));
 }
 
 /* ------------------------------------------------------------------ people */
@@ -883,6 +1157,12 @@ async function route() {
   renderNav();
 
   if (setupMatch) { viewSetup(setupMatch[1]); return; }
+
+  // A gallery is reachable without an account: participants enter a code, not
+  // a passphrase. This has to come before the sign-in check.
+  const galleryMatch = hash.match(/^\/g\/([^/]+)$/);
+  if (galleryMatch) { await viewGalleryGate(galleryMatch[1]); return; }
+
   if (!state.user) { viewLogin(); return; }
 
   try {
@@ -890,6 +1170,7 @@ async function route() {
     const edit = hash.match(/^\/edit\/(.+)$/);
     if (play) await viewPlay(play[1]);
     else if (edit) await viewEdit(edit[1]);
+    else if (hash === '/galleries') await viewGalleriesAdmin();
     else if (hash === '/people' && state.user.role === 'admin') await viewPeople();
     else await viewGallery();
   } catch (err) {

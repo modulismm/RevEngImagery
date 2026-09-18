@@ -69,15 +69,32 @@ CREATE TABLE IF NOT EXISTS sound (
 );
 CREATE INDEX IF NOT EXISTS sound_owner ON sound(owner_id);
 
+-- A "room" is a group's own gallery: a named set of canvases behind a PIN.
+-- Workshops are run per group and each group should see only its own work,
+-- so access is per-gallery rather than per-account -- participants never sign in.
 CREATE TABLE IF NOT EXISTS room (
     id          TEXT PRIMARY KEY,
     owner_id    TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
     title       TEXT NOT NULL,
     subtitle    TEXT,
+    slug        TEXT UNIQUE,
+    pin_hash    TEXT,
     accent_color TEXT DEFAULT '#6d5cf6',
     created_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS room_owner ON room(owner_id);
+
+-- A browser that has entered a gallery's PIN. One token can unlock several
+-- galleries, so a facilitator moving between groups is not forced to juggle
+-- cookies.
+CREATE TABLE IF NOT EXISTS gallery_access (
+    token       TEXT NOT NULL,
+    room_id     TEXT NOT NULL REFERENCES room(id) ON DELETE CASCADE,
+    created_at  REAL NOT NULL,
+    expires_at  REAL NOT NULL,
+    PRIMARY KEY (token, room_id)
+);
+CREATE INDEX IF NOT EXISTS gallery_access_expiry ON gallery_access(expires_at);
 """
 
 
@@ -97,6 +114,24 @@ def connect(path=None):
     return conn
 
 
+# Columns added after the first release. SQLite has no "ADD COLUMN IF NOT
+# EXISTS", so they are applied by inspection instead of by version number --
+# there are few enough that a table of them is clearer than a migration runner.
+_ADDED_COLUMNS = (
+    ("room", "slug", "TEXT"),
+    ("room", "pin_hash", "TEXT"),
+)
+
+
+def _ensure_columns(conn):
+    for table, column, decl in _ADDED_COLUMNS:
+        existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if not existing:
+            continue                       # table not created yet; schema will do it
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def migrate(conn):
     """Create the schema and, once, switch the file to WAL.
 
@@ -109,6 +144,7 @@ def migrate(conn):
     except sqlite3.OperationalError:
         pass          # another worker holds the lock; it is setting the same value
     conn.executescript(SCHEMA)
+    _ensure_columns(conn)
     conn.commit()
 
 

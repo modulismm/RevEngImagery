@@ -9,6 +9,15 @@
     "bytes": 72768
   },
   {
+    "slug": "rainwindow",
+    "label_en": "Rain on a window",
+    "label_fr": "Pluie sur la fenêtre",
+    "url": "/static/sounds/rainwindow.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
     "slug": "wind",
     "label_en": "Wind",
     "label_fr": "Vent",
@@ -36,15 +45,6 @@
     "bytes": 96592
   },
   {
-    "slug": "fire",
-    "label_en": "Fire",
-    "label_fr": "Feu",
-    "url": "/static/sounds/fire.mp3",
-    "licence": "CC0",
-    "source": "synthesised",
-    "bytes": 72768
-  },
-  {
     "slug": "birds",
     "label_en": "Birds",
     "label_fr": "Oiseaux",
@@ -63,6 +63,15 @@
     "bytes": 72768
   },
   {
+    "slug": "fire",
+    "label_en": "Fire",
+    "label_fr": "Feu",
+    "url": "/static/sounds/fire.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
     "slug": "water",
     "label_en": "Water drop",
     "label_fr": "Goutte d'eau",
@@ -70,6 +79,105 @@
     "licence": "CC0",
     "source": "synthesised",
     "bytes": 20106
+  },
+  {
+    "slug": "snowsteps",
+    "label_en": "Steps in snow",
+    "label_fr": "Pas dans la neige",
+    "url": "/static/sounds/snowsteps.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 60857
+  },
+  {
+    "slug": "clock",
+    "label_en": "Clock",
+    "label_fr": "Horloge",
+    "url": "/static/sounds/clock.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "metronome",
+    "label_en": "Metronome",
+    "label_fr": "Métronome",
+    "url": "/static/sounds/metronome.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "kettle",
+    "label_en": "Kettle",
+    "label_fr": "Bouilloire",
+    "url": "/static/sounds/kettle.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "spoon",
+    "label_en": "Spoon in a cup",
+    "label_fr": "Cuillère dans une tasse",
+    "url": "/static/sounds/spoon.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 36719
+  },
+  {
+    "slug": "musicbox",
+    "label_en": "Music box",
+    "label_fr": "Boîte à musique",
+    "url": "/static/sounds/musicbox.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "telephone",
+    "label_en": "Rotary phone",
+    "label_fr": "Téléphone à cadran",
+    "url": "/static/sounds/telephone.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "typewriter",
+    "label_en": "Typewriter",
+    "label_fr": "Machine à écrire",
+    "url": "/static/sounds/typewriter.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "radio",
+    "label_en": "Radio tuning",
+    "label_fr": "Radio qu’on syntonise",
+    "url": "/static/sounds/radio.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 60857
+  },
+  {
+    "slug": "door",
+    "label_en": "Creaking door",
+    "label_fr": "Porte qui grince",
+    "url": "/static/sounds/door.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 32017
+  },
+  {
+    "slug": "floor",
+    "label_en": "Creaking floor",
+    "label_fr": "Plancher qui craque",
+    "url": "/static/sounds/floor.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 27315
   },
   {
     "slug": "bell",
@@ -88,5 +196,32 @@
     "licence": "CC0",
     "source": "synthesised",
     "bytes": 39227
+  },
+  {
+    "slug": "train",
+    "label_en": "Steam train",
+    "label_fr": "Train à vapeur",
+    "url": "/static/sounds/train.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "whistle",
+    "label_en": "Train whistle",
+    "label_fr": "Sifflet de train",
+    "url": "/static/sounds/whistle.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 36719
+  },
+  {
+    "slug": "heartbeat",
+    "label_en": "Heartbeat",
+    "label_fr": "Battement de cœur",
+    "url": "/static/sounds/heartbeat.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 60857
   }
 ]

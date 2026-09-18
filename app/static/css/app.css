@@ -32,15 +32,24 @@
 
 * { box-sizing: border-box; }
 
-html { font-size: 18px; }
+html {
+  font-size: 18px;
+  /* Safari otherwise inflates text when an iPad is turned to landscape. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 
 body {
   margin: 0;
+  min-height: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  /* BYOD iPads land on notched models too; keep content clear of the inset. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 h1, h2, h3 { line-height: 1.2; margin: 0 0 .5em; }
@@ -61,6 +70,9 @@ p { margin: 0 0 1em; }
   outline: 3px solid var(--focus);
   outline-offset: 2px;
   border-radius: 4px;
+  /* The inner white ring keeps focus legible on top of a photograph, where a
+   * single-colour outline can vanish into the image. */
+  box-shadow: 0 0 0 5px rgba(0, 0, 0, .55);
 }
 
 /* --- header ------------------------------------------------------------- */
@@ -88,7 +100,9 @@ p { margin: 0 0 1em; }
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   cursor: pointer; text-decoration: none;
 }
+.btn { transition: background-color .12s ease, border-color .12s ease, transform .06s ease; }
 .btn:hover { background: var(--border); }
+.btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .btn-primary:hover { background: var(--accent-hover); }
@@ -121,6 +135,7 @@ textarea { min-height: 92px; resize: vertical; }
 .card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .28);
 }
 .grid {
   display: grid; gap: 20px;
@@ -158,10 +173,20 @@ textarea { min-height: 92px; resize: vertical; }
 .stage-wrap { position: relative; display: inline-block; max-width: 100%; }
 .stage {
   position: relative; display: block; max-width: 100%; height: auto;
-  /* The editor drags zones; without this the browser scrolls instead. */
-  touch-action: none;
+  /* `manipulation` keeps normal panning and pinch-zoom working while removing
+   * Safari's 300ms tap delay. A blanket `none` here is what broke scrolling on
+   * iPad in landscape: the picture fills the viewport, so every touch landed on
+   * an element that refused to pan, and the page could not be moved at all.
+   * Panning is suppressed only for the duration of a drag -- see .is-dragging. */
+  touch-action: manipulation;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;   /* no "save image" sheet on a long press */
 }
+
+/* Only while a zone is actually being dragged. */
+.stage-wrap.is-dragging,
+.stage-wrap.is-dragging .stage { touch-action: none; }
 /* The layer sits over the image, so it must not swallow clicks: the editor
  * needs a click on bare image to mean "add a zone here". Zones themselves opt
  * back in. */
@@ -175,9 +200,13 @@ textarea { min-height: 92px; resize: vertical; }
 .zone {
   position: absolute; transform: translate(-50%, -50%);
   border-radius: 50%; padding: 0;
-  background: rgba(124, 108, 246, .28);
-  border: 2px solid rgba(190, 185, 255, .75);
+  background: rgba(124, 108, 246, .26);
+  border: 2px solid rgba(198, 193, 255, .8);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35), 0 6px 18px rgba(0, 0, 0, .3);
   cursor: grab;
+  /* Dragging a zone must not pan the page, but the picture around it still can. */
+  touch-action: none;
+  transition: background-color .12s ease, border-color .12s ease;
 }
 .zone.is-active, .zone:focus-visible {
   background: rgba(124, 108, 246, .45);
@@ -204,8 +233,10 @@ textarea { min-height: 92px; resize: vertical; }
 
 /* --- editor panel ------------------------------------------------------- */
 .editor-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
-@media (min-width: 1000px) {
-  .editor-grid { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; }
+/* iPad landscape is 1024px. Below 1180 the editor stays single-column: two
+ * columns there squeezes the picture to roughly a third of the screen. */
+@media (min-width: 1180px) {
+  .editor-grid { grid-template-columns: minmax(0, 1fr) 380px; align-items: start; }
 }
 .panel { padding: 20px; }
 .panel h2 { font-size: 1.15rem; }
@@ -299,3 +330,61 @@ audio { width: 100%; margin-top: 10px; }
 
 .bank-item { display: flex; flex-direction: column; gap: 6px; }
 .bank-item audio { height: 34px; margin: 0; }
+
+/* --- gallery code screen ------------------------------------------------- */
+/* Sized for a shared iPad held at arm's length by someone who may not have
+ * their reading glasses on: 72px keys, large digits, generous spacing. */
+.gate { max-width: 460px; margin: 4vh auto; padding: 0 20px; }
+.gate-card { padding: 28px 24px 32px; }
+.gate-card h1 { text-align: center; }
+
+.pin-display {
+  display: flex; justify-content: center; gap: 14px;
+  margin: 22px 0 26px; min-height: 26px;
+}
+.pin-dot {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid var(--border-strong); background: transparent;
+}
+.pin-dot.filled { background: var(--accent); border-color: var(--accent); }
+
+.keypad {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  margin-bottom: 22px;
+}
+.key {
+  min-height: 72px; font-size: 1.7rem; font-weight: 600;
+  color: var(--text); background: var(--surface-2);
+  border: 2px solid var(--border-strong); border-radius: var(--radius);
+  cursor: pointer; font-family: inherit;
+  transition: background-color .1s ease, transform .06s ease;
+}
+.key:hover { background: var(--border); }
+.key:active { transform: translateY(1px); background: var(--accent); border-color: var(--accent); }
+.key-alt { font-size: 1.3rem; color: var(--text-dim); }
+
+@media (max-width: 400px) {
+  .key { min-height: 64px; font-size: 1.5rem; }
+}
+
+/* On a short landscape iPad the keypad must not push the button off-screen. */
+@media (max-height: 560px) and (orientation: landscape) {
+  .gate { margin: 2vh auto; max-width: 620px; }
+  .gate-card { padding: 18px; }
+  .keypad { max-width: 320px; margin: 0 auto 16px; gap: 8px; }
+  .key { min-height: 54px; font-size: 1.3rem; }
+  .pin-display { margin: 14px 0 16px; }
+}
+
+/* --- sound bank ---------------------------------------------------------- */
+.bank-search {
+  width: 100%; margin-bottom: 12px;
+}
+/* 25 sounds is too many to show at once beside the picture; cap the height and
+ * let the list scroll on its own. */
+.bank-grid {
+  max-height: 46vh; overflow-y: auto;
+  padding-right: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.bank-grid .preset { min-height: 48px; }

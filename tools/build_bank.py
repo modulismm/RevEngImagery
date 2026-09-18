@@ -12,24 +12,29 @@ import sys
 RAW = "app/static/sounds/_raw"
 OUT = "app/static/sounds"
 
-# Labels for the synthesised half, mirroring tools/make_sounds.py.
-SYNTH = {
-    "rain":     ("Rain", "Pluie"),
-    "wind":     ("Wind", "Vent"),
-    "fire":     ("Fire", "Feu"),
-    "crickets": ("Crickets", "Grillons"),
-    "birds":    ("Birds", "Oiseaux"),
-    "water":    ("Water drop", "Goutte d'eau"),
-    "chime":    ("Chime", "Carillon"),
-}
+# Labels for the synthesised half are taken straight from the synthesiser, so
+# the two cannot drift apart.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from make_sounds import GENERATED, MEMORY            # noqa: E402
+
+SYNTH = {slug: (en, fr) for slug, en, fr, _fn in GENERATED + MEMORY}
+
 SCRAPED_LABELS = {
     "bell":    ("Bell", "Cloche"),
     "thunder": ("Thunder", "Tonnerre"),
     "waves":   ("Waves", "Vagues"),
 }
 
-ORDER = ["rain", "wind", "waves", "thunder", "fire", "birds",
-         "crickets", "water", "bell", "chime"]
+# Roughly grouped: weather, nature, home, machines. The categories were left
+# open on purpose -- participants decide what matters -- so this is only a
+# sensible reading order, not a taxonomy.
+ORDER = [
+    "rain", "rainwindow", "wind", "waves", "thunder",
+    "birds", "crickets", "fire", "water", "snowsteps",
+    "clock", "metronome", "kettle", "spoon", "musicbox",
+    "telephone", "typewriter", "radio", "door", "floor",
+    "bell", "chime", "train", "whistle", "heartbeat",
+]
 
 
 def main():

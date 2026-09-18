@@ -245,3 +245,115 @@ def test_zone_url_allowlist(client, url, kept):
     z = client.put(f"/api/canvases/{cid}", json={"zones": [{"url": url, "radius": 200}]},
                    headers=h).get_json()["canvas"]["zones"][0]
     assert (z["url"] == url) is kept
+
+
+# ------------------------------------------------------------- galleries --
+
+def make_gallery(client, csrf, title="Groupe A", pin="4817"):
+    return client.post("/api/galleries", json={"title": title, "pin": pin},
+                       headers={"X-CSRF-Token": csrf})
+
+
+def test_gallery_create_and_slug(client):
+    csrf = login(client)
+    r = make_gallery(client, csrf, "Un portrait — Groupe A")
+    assert r.status_code == 201, r.get_json()
+    g = r.get_json()["gallery"]
+    assert g["slug"] and " " not in g["slug"]
+    assert g["has_pin"] is True
+
+
+@pytest.mark.parametrize("pin", ["123", "0000", "1234", "abcd", "111111", "9" * 9])
+def test_weak_pins_refused(client, pin):
+    csrf = login(client)
+    r = make_gallery(client, csrf, "G", pin)
+    assert r.status_code == 400, f"{pin} was accepted"
+
+
+def test_gallery_needs_the_pin(client):
+    csrf = login(client)
+    slug = make_gallery(client, csrf).get_json()["gallery"]["slug"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+
+    # The name is public; the contents are not.
+    pub = client.get(f"/api/g/{slug}")
+    assert pub.status_code == 200
+    assert pub.get_json()["unlocked"] is False
+    assert "canvases" not in pub.get_json()
+
+    assert client.get(f"/api/g/{slug}/canvases").status_code == 403
+    assert client.post(f"/api/g/{slug}/unlock", json={"pin": "9999"}).status_code == 401
+    assert client.post(f"/api/g/{slug}/unlock", json={"pin": "4817"}).status_code == 200
+    assert client.get(f"/api/g/{slug}/canvases").status_code == 200
+
+
+def test_groups_cannot_see_each_others_galleries(client):
+    csrf = login(client)
+    h = {"X-CSRF-Token": csrf}
+    a = make_gallery(client, csrf, "Groupe A", "4817").get_json()["gallery"]
+    b = make_gallery(client, csrf, "Groupe B", "5293").get_json()["gallery"]
+    ca = client.post("/api/canvases", json={"name": "A1"}, headers=h).get_json()["canvas"]["id"]
+    cb = client.post("/api/canvases", json={"name": "B1"}, headers=h).get_json()["canvas"]["id"]
+    client.put(f"/api/canvases/{ca}", json={"room_id": a["id"]}, headers=h)
+    client.put(f"/api/canvases/{cb}", json={"room_id": b["id"]}, headers=h)
+    client.post("/api/logout", headers=h)
+
+    client.post(f"/api/g/{a['slug']}/unlock", json={"pin": "4817"})
+    names = [c["name"] for c in client.get(f"/api/g/{a['slug']}/canvases").get_json()["canvases"]]
+    assert names == ["A1"]
+    # Unlocking A must not unlock B.
+    assert client.get(f"/api/g/{b['slug']}/canvases").status_code == 403
+    # Nor read B's canvas directly.
+    assert client.get(f"/api/canvases/{cb}").status_code == 404
+
+
+def test_a_canvas_in_no_gallery_is_not_readable_anonymously(client):
+    csrf = login(client)
+    cid = client.post("/api/canvases", json={"name": "private"},
+                      headers={"X-CSRF-Token": csrf}).get_json()["canvas"]["id"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+    assert client.get(f"/api/canvases/{cid}").status_code == 404
+
+
+def test_unlocked_visitor_can_read_that_gallerys_canvas(client):
+    csrf = login(client)
+    h = {"X-CSRF-Token": csrf}
+    g = make_gallery(client, csrf).get_json()["gallery"]
+    cid = client.post("/api/canvases", json={"name": "A1"}, headers=h).get_json()["canvas"]["id"]
+    client.put(f"/api/canvases/{cid}", json={"room_id": g["id"]}, headers=h)
+    client.post("/api/logout", headers=h)
+
+    assert client.get(f"/api/canvases/{cid}").status_code == 404
+    client.post(f"/api/g/{g['slug']}/unlock", json={"pin": "4817"})
+    assert client.get(f"/api/canvases/{cid}").status_code == 200
+
+
+def test_changing_the_pin_locks_everyone_out_again(client):
+    csrf = login(client)
+    h = {"X-CSRF-Token": csrf}
+    g = make_gallery(client, csrf).get_json()["gallery"]
+    client.post("/api/logout", headers=h)
+    client.post(f"/api/g/{g['slug']}/unlock", json={"pin": "4817"})
+    assert client.get(f"/api/g/{g['slug']}/canvases").status_code == 200
+
+    csrf = login(client)
+    client.put(f"/api/galleries/{g['id']}", json={"pin": "7361"},
+               headers={"X-CSRF-Token": csrf})
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+    assert client.get(f"/api/g/{g['slug']}/canvases").status_code == 403
+    assert client.post(f"/api/g/{g['slug']}/unlock", json={"pin": "7361"}).status_code == 200
+
+
+def test_non_owner_cannot_manage_a_gallery(client):
+    csrf = login(client)
+    h = {"X-CSRF-Token": csrf}
+    g = make_gallery(client, csrf).get_json()["gallery"]
+    token = client.post("/api/users", json={"name": "mamie"},
+                        headers=h).get_json()["setup_url"].rsplit("/", 1)[-1]
+    client.post("/api/logout", headers=h)
+    csrf2 = client.post(f"/api/setup/{token}",
+                        json={"passphrase": "les oiseaux chantent"}).get_json()["csrf"]
+    h2 = {"X-CSRF-Token": csrf2}
+    assert client.put(f"/api/galleries/{g['id']}", json={"title": "mine"}, headers=h2).status_code == 403
+    assert client.delete(f"/api/galleries/{g['id']}", headers=h2).status_code == 403
+    assert client.get("/api/galleries").get_json()["galleries"] == []
