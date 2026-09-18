@@ -1,0 +1,53 @@
+{
+  "name": "Pioupiou",
+  "image_url": "media/873b96d68_DSC09459.jpeg",
+  "sound_zones": [
+    {
+      "volume": 0.7,
+      "effects": {
+        "reverbLevel": 0,
+        "pitch": 0,
+        "highFreq": 0,
+        "lowFreq": 0,
+        "midFreq": 0,
+        "isReversed": false
+      },
+      "sound_url": null,
+      "x": 40.188419117647065,
+      "sound_name": "Son 1",
+      "y": 24.941176470588236,
+      "startTime": 0,
+      "id": "1789566035958",
+      "endTime": 2.1,
+      "type": "custom",
+      "radius": 225.93804460515253,
+      "url": "media/f5b760e3e_recording.webm",
+      "url_remote": "https://base44.app/api/apps/68a26cc71947ac0be6d6a35c/files/mp/public/68a26cc71947ac0be6d6a35c/f5b760e3e_recording.webm"
+    },
+    {
+      "volume": 0.7,
+      "effects": {
+        "reverbLevel": 0,
+        "pitch": 0,
+        "highFreq": 0,
+        "lowFreq": 0,
+        "midFreq": 0,
+        "isReversed": false
+      },
+      "sound_url": null,
+      "x": 61.459926470588236,
+      "sound_name": "Son 2",
+      "y": 42.705882352941174,
+      "startTime": 0,
+      "id": "1789566076207",
+      "endTime": 2.64,
+      "type": "custom",
+      "radius": 464.3533137601152,
+      "url": "media/11bd5c889_recording.webm",
+      "url_remote": "https://base44.app/api/apps/68a26cc71947ac0be6d6a35c/files/mp/public/68a26cc71947ac0be6d6a35c/11bd5c889_recording.webm"
+    }
+  ],
+  "created_date": "2026-09-16T13:41:29.283000",
+  "export_version": "1.0",
+  "image_url_remote": "https://base44.app/api/apps/68a26cc71947ac0be6d6a35c/files/mp/public/68a26cc71947ac0be6d6a35c/873b96d68_DSC09459.jpeg"
+}

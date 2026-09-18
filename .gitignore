@@ -1,0 +1,8 @@
+# Media pulled from the live app -- large, and recoverable via tools/imagery_backup.py
+*.jpeg
+*.jpg
+*.png
+*.webm
+*.webp
+!screenshots/*.png
+!screenshots/*.jpg
