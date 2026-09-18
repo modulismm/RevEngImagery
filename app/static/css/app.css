@@ -1,0 +1,240 @@
+/* Imagery -- self-hosted.
+ *
+ * Sizing and contrast are deliberately generous: the people using this are
+ * older, some on laptop trackpads. Base type is 18px (not 16), every control is
+ * at least 48px tall, and focus is always visible. The original app's
+ * text-gray-500 failed WCAG AA on its own background; nothing here is below
+ * 4.5:1 on body text.
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --surface: #161b25;
+  --surface-2: #1d2430;
+  --border: #2d3748;
+  --border-strong: #46536b;
+  --text: #f2f5fa;
+  --text-dim: #b8c2d4;         /* 8.9:1 on --bg */
+  --accent: #7c6cf6;
+  --accent-hover: #6d5cf6;
+  --accent-text: #ffffff;
+  --ok: #34a853;
+  --ok-hover: #2c8c46;
+  --danger: #e2504a;
+  --danger-hover: #c8413c;
+  --focus: #9fd0ff;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --gap: 16px;
+  --font: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 18px; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { line-height: 1.2; margin: 0 0 .5em; }
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+p { margin: 0 0 1em; }
+
+.muted { color: var(--text-dim); }
+.center { text-align: center; }
+.hidden { display: none !important; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* --- focus: always visible, never removed ------------------------------- */
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- header ------------------------------------------------------------- */
+.topbar {
+  display: flex; align-items: center; gap: var(--gap);
+  padding: 12px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.brand { display: flex; align-items: center; gap: 12px; margin-right: auto; }
+.brand-mark {
+  width: 44px; height: 44px; border-radius: var(--radius-sm);
+  background: var(--accent); display: grid; place-items: center; font-size: 1.4rem;
+}
+.brand-name { font-weight: 700; font-size: 1.2rem; }
+.brand-sub { font-size: .8rem; color: var(--text-dim); }
+
+/* --- buttons: minimum 48px tall everywhere ------------------------------ */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px; padding: 10px 20px;
+  font: inherit; font-weight: 600;
+  color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  cursor: pointer; text-decoration: none;
+}
+.btn:hover { background: var(--border); }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.btn-ok:hover { background: var(--ok-hover); }
+.btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn-danger:hover { background: var(--danger-hover); }
+.btn-lg { min-height: 56px; font-size: 1.1rem; padding: 12px 28px; }
+
+/* --- forms -------------------------------------------------------------- */
+.field { margin-bottom: 20px; }
+.field label { display: block; font-weight: 600; margin-bottom: 6px; }
+.field .hint { font-size: .85rem; color: var(--text-dim); margin-top: 6px; }
+
+input[type=text], input[type=password], textarea, select {
+  width: 100%; min-height: 52px; padding: 12px 14px;
+  font: inherit; color: var(--text);
+  background: var(--surface-2);
+  border: 2px solid var(--border-strong); border-radius: var(--radius);
+}
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+textarea { min-height: 92px; resize: vertical; }
+
+.pass-wrap { position: relative; display: flex; gap: 8px; }
+.pass-wrap input { flex: 1; }
+.pass-toggle { flex: 0 0 auto; min-width: 110px; }
+
+/* --- cards and layout --------------------------------------------------- */
+.page { max-width: 1200px; margin: 0 auto; padding: 28px 20px 64px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+}
+.grid {
+  display: grid; gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.row-end { margin-left: auto; }
+
+.thumb { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; background: var(--surface-2); display: block; }
+.card-body { padding: 16px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(0,0,0,.66); color: #fff;
+  padding: 4px 10px; border-radius: 999px; font-size: .8rem;
+}
+
+.notice {
+  padding: 14px 16px; border-radius: var(--radius);
+  border: 1px solid var(--border-strong); background: var(--surface-2);
+  margin-bottom: 20px;
+}
+.notice-error { border-color: var(--danger); background: rgba(226,80,74,.13); }
+.notice-ok { border-color: var(--ok); background: rgba(52,168,83,.13); }
+
+/* --- login -------------------------------------------------------------- */
+.login-wrap { max-width: 460px; margin: 8vh auto; padding: 0 20px; }
+.login-wrap .card { padding: 32px; }
+.check {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px; border-radius: var(--radius); background: var(--surface-2);
+}
+.check input { width: 26px; height: 26px; margin: 2px 0 0; flex: 0 0 auto; }
+
+/* --- canvas stage ------------------------------------------------------- */
+.stage-wrap { position: relative; display: inline-block; max-width: 100%; }
+.stage {
+  position: relative; display: block; max-width: 100%; height: auto;
+  /* The editor drags zones; without this the browser scrolls instead. */
+  touch-action: none;
+  user-select: none;
+}
+.zone-layer { position: absolute; inset: 0; }
+
+/* A zone is a real <button>: focusable, reachable by keyboard, announced by a
+ * screen reader. The original app had no keyboard path to its zones at all. */
+.zone {
+  position: absolute; transform: translate(-50%, -50%);
+  border-radius: 50%; padding: 0;
+  background: rgba(124, 108, 246, .28);
+  border: 2px solid rgba(190, 185, 255, .75);
+  cursor: grab;
+}
+.zone.is-active, .zone:focus-visible {
+  background: rgba(124, 108, 246, .45);
+  border-color: #fff;
+}
+.zone[data-readonly="1"] { cursor: default; }
+.zone-label {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  font-size: .8rem; font-weight: 600; color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,.9); pointer-events: none;
+  white-space: nowrap;
+}
+.zone-handle {
+  position: absolute; width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--accent);
+  right: -11px; top: 50%; transform: translateY(-50%); cursor: ew-resize;
+}
+.zone-del {
+  position: absolute; top: -14px; right: -14px;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--danger); color: #fff; border: none;
+  display: grid; place-items: center; cursor: pointer; font-size: 1rem;
+}
+
+/* --- editor panel ------------------------------------------------------- */
+.editor-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+@media (min-width: 1000px) {
+  .editor-grid { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; }
+}
+.panel { padding: 20px; }
+.panel h2 { font-size: 1.15rem; }
+
+.slider-row { margin-bottom: 18px; }
+.slider-row label { display: flex; justify-content: space-between; font-weight: 600; }
+input[type=range] { width: 100%; height: 44px; accent-color: var(--accent); }
+
+.sound-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px; border-radius: var(--radius);
+  background: var(--surface-2); border: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.sound-item .name { font-weight: 600; }
+.sound-item .meta { font-size: .8rem; color: var(--text-dim); }
+
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+
+/* --- tables (admin) ----------------------------------------------------- */
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 12px; border-bottom: 1px solid var(--border); }
+th { color: var(--text-dim); font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; }
+
+/* --- small screens ------------------------------------------------------ */
+@media (max-width: 640px) {
+  html { font-size: 17px; }
+  .page { padding: 20px 16px 56px; }
+  .topbar { padding: 10px 16px; }
+  .brand-sub { display: none; }
+  .btn { width: 100%; }
+  .row .btn { width: auto; }
+  .grid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

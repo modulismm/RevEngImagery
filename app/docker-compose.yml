@@ -1,0 +1,22 @@
+services:
+  imagery:
+    build: .
+    container_name: imagery
+    restart: unless-stopped
+    ports:
+      # Bound to the docker0 gateway, NOT 0.0.0.0: reachable by
+      # nginx-proxy-manager, invisible to the LAN. See ../docs/deploy.md.
+      - "172.17.0.1:8010:8000"
+    volumes:
+      - imagery_data:/data
+    environment:
+      # Set on first run only; afterwards the account exists in the database.
+      - IMAGERY_ADMIN=${IMAGERY_ADMIN:-bear}
+      - IMAGERY_ADMIN_PASSPHRASE=${IMAGERY_ADMIN_PASSPHRASE:-}
+      # Cookies are Secure by default; set 0 only for plain-HTTP local testing.
+      - IMAGERY_SECURE_COOKIE=${IMAGERY_SECURE_COOKIE:-1}
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  imagery_data:

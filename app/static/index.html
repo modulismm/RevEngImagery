@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Imagery</title>
+<meta name="description" content="Turn a picture into sound. Move the pointer over the picture and hear what is hidden there.">
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔊</text></svg>">
+</head>
+<body>
+<a class="sr-only" href="#main">Skip to main content</a>
+
+<header class="topbar" id="topbar" hidden>
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">🔊</div>
+    <div>
+      <div class="brand-name">Imagery</div>
+      <div class="brand-sub" data-t="tagline">Interactive Audio Canvas</div>
+    </div>
+  </div>
+  <nav class="row" id="nav" aria-label="Main"></nav>
+</header>
+
+<main id="main" tabindex="-1"></main>
+
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
