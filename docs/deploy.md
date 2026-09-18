@@ -49,3 +49,37 @@ docker run --rm -v imagery_data:/data -v "$PWD":/out alpine \
 ```
 
 Per the standing storage rule, write backups to `/dev/sdc1`, not the root disk.
+
+## Prototyping over HTTPS with Tailscale
+
+Recording needs a secure context, so a plain-http prototype cannot test the
+feature that matters most. `tailscale serve` gives a real Let's Encrypt
+certificate on the tailnet with no public DNS, no port forwarding and no
+exposure beyond your own devices.
+
+One-time, on the host:
+
+```bash
+sudo tailscale set --operator=$USER      # so serve/cert do not need root
+# then enable "HTTPS Certificates" in the Tailscale admin console, under DNS
+```
+
+Then bind the container to localhost only and put serve in front of it:
+
+```bash
+docker run -d --name imagery -v imagery_data:/data \
+  -p 127.0.0.1:8011:8000 \
+  -e IMAGERY_ADMIN=bear -e IMAGERY_SECURE_COOKIE=1 imagery:dev
+
+tailscale serve --bg --https=443 http://127.0.0.1:8011
+```
+
+The app is then at `https://<host>.<tailnet>.ts.net/` for every device on the
+tailnet, and `IMAGERY_SECURE_COOKIE=1` is correct because the connection really
+is secure. The serve configuration persists across reboots.
+
+To take it down again: `tailscale serve --https=443 off`.
+
+**Note that BYOD iPads are not on the tailnet.** This is the right setup for
+testing on your own devices; workshops still need the public deployment in
+`docker-compose.prod.yml`.

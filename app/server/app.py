@@ -188,6 +188,13 @@ def _register(app):
 
     @app.after_request
     def _headers(resp):
+        # Only once the connection really is HTTPS: HSTS is sticky in browsers,
+        # and asserting it from a plain-http prototype would lock people out of
+        # their own test instance.
+        forwarded = request.headers.get("X-Forwarded-Proto", "")
+        if request.is_secure or forwarded == "https":
+            resp.headers.setdefault("Strict-Transport-Security",
+                                    "max-age=31536000; includeSubDomains")
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
