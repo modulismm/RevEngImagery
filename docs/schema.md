@@ -73,3 +73,45 @@ The app's own per-canvas export/import. Import validates `export_version`, `name
 ```json
 { "name", "image_url", "sound_zones", "created_date", "export_version": "1.0" }
 ```
+
+## Audio engine (recovered from the bundle, 2026-09-18)
+
+Complete and exactly replicable. Per zone the chain is:
+
+```
+input(gain)
+  -> lowshelf   f=320Hz          gain = effects.lowFreq
+  -> peaking    f=1000Hz  Q=1    gain = effects.midFreq
+  -> highshelf  f=3200Hz         gain = effects.highFreq
+  -> dry gain (1-k) ----------------.
+  \-> convolver -> wet gain (k) ----+-> master gain -> destination
+```
+
+`k = effects.reverbLevel / 100`. Master gain starts at 0.
+
+**Reverb impulse response** is generated, not a file: 2 channels x `sampleRate * 2` samples
+(2 seconds), each sample `(Math.random()*2-1) * Math.pow(1 - i/len, 2)` -- white noise under a
+squared decay envelope.
+
+**Pitch** is `playbackRate = Math.pow(2, semitones/12)`, slider range -12..+12 step 1. Plain
+resampling, so duration changes with pitch. No `detune`, no phase vocoder.
+
+**Trigger and falloff**, on pointer move, per zone:
+
+```js
+d = hypot(px - zx, py - zy)
+if (d <= zone.radius / 2) {
+    gain = (zone.volume || 0.7) * (1 - Math.min(1, d / (zone.radius / 2)))
+    masterGain.setTargetAtTime(gain, now, 0.05)      // smoothing tc = 50ms
+} else {
+    masterGain.linearRampToValueAtTime(0, now + 0.2) // 200ms fade, then pause
+}
+```
+
+So volume falls off **linearly** from full at the centre to zero at the edge -- not binary.
+
+**Looping:** on `timeupdate`, `currentTime >= endTime` resets to `startTime`, so a zone loops
+within its trimmed window.
+
+Custom sounds play through an `<audio>` element routed into the graph, not an
+`AudioBufferSourceNode`.

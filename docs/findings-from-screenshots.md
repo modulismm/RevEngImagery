@@ -31,27 +31,30 @@ Meanwhile, the only French actually on screen is **hardcoded**, bypassing i18n e
 `Enregistrer un son`, plus the tagline `Interactive Audio Canvas`. So the app shows English
 where it has French, and French where it has no translation at all -- exactly backwards.
 
-## ✅ `radius` resolved: a true radius, in absolute CSS pixels
+## ✅ `radius` resolved -- it holds the **diameter**, in absolute CSS pixels
 
-Previously listed as a known unknown. Measured from the resize handle, which sits exactly on
-the circle's edge at the same `y` as the centre:
+An earlier revision of this file said "a true radius". **That was wrong**, and the code settles
+it. Two places in the bundle prove `radius` is a diameter:
 
-| zone | centre (px) | handle (px) | measured radius | stored `radius` |
-|---|---|---|---|---|
-| Son 2 | 1614, 1047 | 2079, 1047 | **465** | **464.353** |
+- the resize handler stores `Math.max(20, Math.sqrt(dx*dx+dy*dy) * 2)` -- twice the
+  centre-to-handle distance;
+- the hover hit-test is `distance <= zone.radius / 2`.
 
-Better than 0.2% agreement, so `radius` is a genuine radius in CSS px -- not a diameter, not a
-percentage.
+Both halve it, and they agree with each other, so the drawn circle and the audible circle are
+the same size. The screenshot measurement is consistent once the 2x Retina capture is accounted
+for: centre (1614, 1047) to handle (2079, 1047) = 465 **physical** px = 232.5 CSS px, and
+2 x 232.5 = 465 against a stored `464.353`. The earlier note mistakenly read the capture as 1:1.
 
-**But the data model mixes units:** `x`/`y` are percentages of the image box while `radius` is
-absolute pixels. Derived from the two zone centres, the image renders at ~2515×1683 px
-(25.15 px per 1% horizontally, 16.83 px per 1% vertically) -- and 2515/1683 = 1.494 against the
-source image's 1280/854 = 1.499, so the percentage mapping is confirmed.
+**So: a zone's visible and audible radius is `radius / 2` CSS px.** The field is misnamed.
 
-**Consequence, inferred but not yet observed:** if the image renders at a different size, zone
-positions will scale and their radii will not, so zones drift off their targets. Both screenshots
-happen to show the image at the same 2515 px width, so this was *not* directly observed.
-**To test: resize the browser window and watch whether a zone stays on its subject.**
+**The units are still mixed:** `x`/`y` are percentages of the image box, `radius` is absolute
+pixels. Derived from the two zone centres, the image renders at ~2515x1683 physical px
+(25.15 px per 1% horizontally, 16.83 px per 1% vertically); 2515/1683 = 1.494 against the source
+image's 1280/854 = 1.499, confirming the percentage mapping.
+
+**Consequence, inferred but not observed:** at a different image size, positions scale and radii
+do not, so zones drift off their subjects. Both screenshots render the image at the same width,
+so this was not directly seen. **To test: resize the window and watch a zone against its target.**
 
 ## 🟡 The Sound Library panel covers the toolbar
 
