@@ -44,6 +44,10 @@ export const api = {
   galleryPublic: (slug) => request('GET', `/api/g/${slug}`),
   galleryUnlock: (slug, pin) => request('POST', `/api/g/${slug}/unlock`, { pin }),
   galleryCanvases: (slug) => request('GET', `/api/g/${slug}/canvases`),
+  galleryJoin: (slug, data) => request('POST', `/api/g/${slug}/join`, data),
+  resetUser: (id) => request('POST', `/api/users/${id}/reset`),
+  exportUser: (id) => request('GET', `/api/users/${id}/export`),
+  deleteUser: (id) => request('DELETE', `/api/users/${id}`),
 
   listUsers: () => request('GET', '/api/users'),
   addUser: (data) => request('POST', '/api/users', data),

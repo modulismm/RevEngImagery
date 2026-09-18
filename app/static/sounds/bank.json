@@ -54,6 +54,15 @@
     "bytes": 72768
   },
   {
+    "slug": "seagulls",
+    "label_en": "Seagulls",
+    "label_fr": "Seagulls",
+    "url": "/static/sounds/seagulls.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
     "slug": "crickets",
     "label_en": "Crickets",
     "label_fr": "Grillons",
@@ -72,15 +81,6 @@
     "bytes": 72768
   },
   {
-    "slug": "water",
-    "label_en": "Water drop",
-    "label_fr": "Goutte d'eau",
-    "url": "/static/sounds/water.mp3",
-    "licence": "CC0",
-    "source": "synthesised",
-    "bytes": 20106
-  },
-  {
     "slug": "snowsteps",
     "label_en": "Steps in snow",
     "label_fr": "Pas dans la neige",
@@ -88,6 +88,15 @@
     "licence": "CC0",
     "source": "synthesised",
     "bytes": 60857
+  },
+  {
+    "slug": "water",
+    "label_en": "Water drop",
+    "label_fr": "Goutte d'eau",
+    "url": "/static/sounds/water.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 20106
   },
   {
     "slug": "clock",
@@ -126,13 +135,22 @@
     "bytes": 36719
   },
   {
-    "slug": "musicbox",
-    "label_en": "Music box",
-    "label_fr": "Boîte à musique",
-    "url": "/static/sounds/musicbox.mp3",
+    "slug": "door",
+    "label_en": "Creaking door",
+    "label_fr": "Porte qui grince",
+    "url": "/static/sounds/door.mp3",
     "licence": "CC0",
     "source": "synthesised",
-    "bytes": 72768
+    "bytes": 32017
+  },
+  {
+    "slug": "floor",
+    "label_en": "Creaking floor",
+    "label_fr": "Plancher qui craque",
+    "url": "/static/sounds/floor.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 27315
   },
   {
     "slug": "telephone",
@@ -162,40 +180,49 @@
     "bytes": 60857
   },
   {
-    "slug": "door",
-    "label_en": "Creaking door",
-    "label_fr": "Porte qui grince",
-    "url": "/static/sounds/door.mp3",
+    "slug": "sewing",
+    "label_en": "Sewing",
+    "label_fr": "Sewing",
+    "url": "/static/sounds/sewing.mp3",
     "licence": "CC0",
     "source": "synthesised",
-    "bytes": 32017
+    "bytes": 60857
   },
   {
-    "slug": "floor",
-    "label_en": "Creaking floor",
-    "label_fr": "Plancher qui craque",
-    "url": "/static/sounds/floor.mp3",
+    "slug": "musicbox",
+    "label_en": "Music box",
+    "label_fr": "Boîte à musique",
+    "url": "/static/sounds/musicbox.mp3",
     "licence": "CC0",
     "source": "synthesised",
-    "bytes": 27315
+    "bytes": 72768
   },
   {
-    "slug": "bell",
-    "label_en": "Bell",
-    "label_fr": "Cloche",
-    "url": "/static/sounds/bell.mp3",
-    "licence": "Public domain",
-    "source": "Wikimedia Commons",
-    "bytes": 55841
-  },
-  {
-    "slug": "chime",
-    "label_en": "Chime",
-    "label_fr": "Carillon",
-    "url": "/static/sounds/chime.mp3",
+    "slug": "organ",
+    "label_en": "Organ",
+    "label_fr": "Organ",
+    "url": "/static/sounds/organ.mp3",
     "licence": "CC0",
     "source": "synthesised",
-    "bytes": 39227
+    "bytes": 60857
+  },
+  {
+    "slug": "engine",
+    "label_en": "Engine",
+    "label_fr": "Engine",
+    "url": "/static/sounds/engine.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "boat",
+    "label_en": "Boat",
+    "label_fr": "Boat",
+    "url": "/static/sounds/boat.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
   },
   {
     "slug": "train",
@@ -214,6 +241,24 @@
     "licence": "CC0",
     "source": "synthesised",
     "bytes": 36719
+  },
+  {
+    "slug": "bell",
+    "label_en": "Bell",
+    "label_fr": "Cloche",
+    "url": "/static/sounds/bell.mp3",
+    "licence": "Public domain",
+    "source": "Wikimedia Commons",
+    "bytes": 55841
+  },
+  {
+    "slug": "chime",
+    "label_en": "Chime",
+    "label_fr": "Carillon",
+    "url": "/static/sounds/chime.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 39227
   },
   {
     "slug": "heartbeat",

@@ -7,7 +7,8 @@
 import { api, setCsrf } from './api.js';
 import { t, lang, setLang, LANGS, auditKeys } from './i18n.js';
 import { ZonePlayer, DEFAULT_VOLUME, GENERATED_PRESETS } from './audio.js';
-import { Recorder, isSupported as canRecord, filenameFor } from './recorder.js';
+import { Recorder, isSupported as canRecord, unavailableReason, isOldIos, filenameFor }
+  from './recorder.js';
 
 const main = document.getElementById('main');
 const topbar = document.getElementById('topbar');
@@ -351,9 +352,10 @@ function loadBank() {
  * time -- the original crammed all of this into a floating panel that covered
  * the toolbar.
  */
-function buildSoundPicker(zone, onChange, onError) {
+function buildSoundPicker(zone, onChange, onError, startTab) {
   const wrap = el('div', { class: 'field' });
-  let tab = zone.type === 'generated' ? 'generated' : 'bank';
+  let tab = startTab || (zone.type === 'generated' ? 'generated' : 'bank');
+  if (tab === 'record' && !canRecord()) tab = 'bank';
 
   const body = el('div', {});
   const recorder = new Recorder();
@@ -379,8 +381,13 @@ function buildSoundPicker(zone, onChange, onError) {
   }, label);
 
   function renderRecord() {
-    if (!canRecord()) {
-      body.replaceChildren(el('p', { class: 'muted' }, t('micBlocked')));
+    const blocked = unavailableReason();
+    if (blocked) {
+      // Different causes need different answers from whoever is standing next
+      // to the person: https is fixable on the spot, an old iPad is not.
+      const key = isOldIos() ? 'recordOldDevice'
+        : (blocked === 'insecure' ? 'recordNeedsHttps' : 'recordOldDevice');
+      body.replaceChildren(el('p', { class: 'notice notice-error' }, t(key)));
       return;
     }
     if (pending) {
@@ -433,7 +440,10 @@ function buildSoundPicker(zone, onChange, onError) {
         class: 'btn btn-danger', type: 'button',
         onclick: async () => {
           try { await recorder.start(); render(); }
-          catch (err) { onError(err.message); }
+          catch (err) {
+            const map = { insecure: 'recordNeedsHttps', 'old-browser': 'recordOldDevice' };
+            onError(map[err.message] ? t(map[err.message]) : err.message);
+          }
         },
       }, '● ' + t('startRecording')));
   }
@@ -547,6 +557,47 @@ function buildSoundPicker(zone, onChange, onError) {
 
   render();
   return wrap;
+}
+
+
+/**
+ * The choice Roger faces the moment he touches the picture: record something,
+ * or pick a sound. Presented on its own rather than in a side panel he has to
+ * find -- placing a spot and giving it a sound is one action, not two.
+ */
+function openSoundSheet(zone, onChange, onError) {
+  const dialog = el('div', { class: 'sheet-backdrop' });
+  const close = () => dialog.remove();
+
+  const picker = (startTab) => {
+    body.replaceChildren(
+      buildSoundPicker(zone, async () => { await onChange(); }, onError, startTab),
+      el('button', { class: 'btn btn-ok btn-lg', type: 'button', style: 'width:100%', onclick: close },
+        t('done')));
+  };
+
+  const body = el('div', { class: 'sheet-body' });
+  const chooser = () => body.replaceChildren(
+    el('p', { class: 'muted' }, t('step3')),
+    canRecord()
+      ? el('button', {
+        class: 'btn btn-danger btn-lg sheet-choice', type: 'button',
+        onclick: () => picker('record'),
+      }, '🎤 ' + t('recordMyVoice'))
+      : el('p', { class: 'notice notice-error' },
+        t(isOldIos() ? 'recordOldDevice' : 'recordNeedsHttps')),
+    el('button', {
+      class: 'btn btn-primary btn-lg sheet-choice', type: 'button',
+      onclick: () => picker('bank'),
+    }, '🔊 ' + t('chooseASound')),
+    el('button', { class: 'btn sheet-choice', type: 'button', onclick: close }, t('close')));
+
+  chooser();
+  dialog.append(el('div', { class: 'sheet card' },
+    el('h2', {}, t('soundFor')),
+    body));
+  dialog.addEventListener('click', (event) => { if (event.target === dialog) close(); });
+  document.body.append(dialog);
 }
 
 /* ------------------------------------------------------------------ editor */
@@ -739,6 +790,9 @@ async function viewEdit(id) {
     renderZones();          // structural: the new zone needs a node
     select(zone.id);        // selection only toggles classes
     saveNow();
+    openSoundSheet(zone,
+      async () => { await saveNow(); renderZones(); select(zone.id); },
+      (err) => msg.replaceChildren(notice(err)));
   }
 
   function removeZone(zid) {
@@ -845,18 +899,26 @@ async function viewEdit(id) {
         })),
       buildSoundPicker(zone, async () => { await saveNow(); renderZones(); renderPanel(); },
                        (err) => msg.replaceChildren(notice(err))),
+      // Volume is the only control most people touch; the rest are for a
+      // facilitator and are folded away so they cannot crowd the screen.
       slider('volume', Math.round((zone.volume ?? DEFAULT_VOLUME) * 100), 0, 100, 1,
         (v) => { zone.volume = v / 100; }, '%'),
-      slider('reverb', zone.effects.reverbLevel || 0, 0, 100, 1,
-        (v) => { zone.effects.reverbLevel = v; }, '%'),
-      slider('pitch', zone.effects.pitch || 0, -12, 12, 1,
-        (v) => { zone.effects.pitch = v; }),
-      slider('lowFreq', zone.effects.lowFreq || 0, -20, 20, 0.5,
-        (v) => { zone.effects.lowFreq = v; }),
-      slider('midFreq', zone.effects.midFreq || 0, -20, 20, 0.5,
-        (v) => { zone.effects.midFreq = v; }),
-      slider('highFreq', zone.effects.highFreq || 0, -20, 20, 0.5,
-        (v) => { zone.effects.highFreq = v; }),
+      el('details', { class: 'advanced' },
+        el('summary', {}, t('advanced')),
+        slider('reverb', zone.effects.reverbLevel || 0, 0, 100, 1,
+          (v) => { zone.effects.reverbLevel = v; }, '%'),
+        slider('pitch', zone.effects.pitch || 0, -12, 12, 1,
+          (v) => { zone.effects.pitch = v; }),
+        slider('lowFreq', zone.effects.lowFreq || 0, -20, 20, 0.5,
+          (v) => { zone.effects.lowFreq = v; }),
+        slider('midFreq', zone.effects.midFreq || 0, -20, 20, 0.5,
+          (v) => { zone.effects.midFreq = v; }),
+        slider('highFreq', zone.effects.highFreq || 0, -20, 20, 0.5,
+          (v) => { zone.effects.highFreq = v; }),
+        slider('startTime', zone.startTime || 0, 0, 60, 0.1,
+          (v) => { zone.startTime = v; }, 's'),
+        slider('endTime', zone.endTime || 0, 0, 60, 0.1,
+          (v) => { zone.endTime = v; }, 's')),
       el('button', {
         class: 'btn btn-danger', type: 'button',
         onclick: () => removeZone(zone.id),
@@ -936,7 +998,7 @@ async function viewGalleryGate(slug) {
     show(el('div', { class: 'page' }, notice(err.message)));
     return;
   }
-  if (info.unlocked) { renderGallery(slug); return; }
+  if (info.unlocked) { afterUnlock(slug, info.gallery); return; }
 
   let pin = '';
   const dots = el('div', { class: 'pin-display', role: 'status', 'aria-live': 'polite' });
@@ -951,8 +1013,8 @@ async function viewGalleryGate(slug) {
   const submit = async () => {
     box.replaceChildren();
     try {
-      await api.galleryUnlock(slug, pin);
-      renderGallery(slug);
+      const res = await api.galleryUnlock(slug, pin);
+      afterUnlock(slug, res.gallery);
     } catch (err) {
       box.replaceChildren(notice(err.message || t('wrongPin')));
       pin = '';
@@ -1029,6 +1091,115 @@ async function renderGallery(slug) {
     cards.length
       ? el('div', { class: 'grid' }, ...cards)
       : el('div', { class: 'card card-body center' }, el('p', {}, t('galleryEmpty')))));
+}
+
+
+/** Once the group code is accepted, the person says who they are. */
+function afterUnlock(slug, gallery) {
+  if (state.user && state.user.role === 'participant') { viewWorkspace(slug, gallery); return; }
+  if (state.user) { renderGallery(slug); return; }     // a facilitator, already signed in
+  viewJoin(slug, gallery);
+}
+
+/**
+ * Claim a name inside the group.
+ *
+ * Deliberately one screen: a name, a passphrase, a consent tick. Returning
+ * participants use the same two fields -- there is no separate "sign in", which
+ * is one fewer decision for someone who comes back a fortnight later.
+ */
+function viewJoin(slug, gallery) {
+  const name = el('input', {
+    type: 'text', id: 'jname', autocomplete: 'name', autocapitalize: 'words',
+  });
+  const pass = passphraseField('jpass', t('passphrase'), t('passHint'));
+  pass.input.autocomplete = 'current-password';
+  const consent = el('input', { type: 'checkbox', id: 'jconsent' });
+  const box = el('div', {});
+
+  const submit = async (event) => {
+    event.preventDefault();
+    box.replaceChildren();
+    try {
+      const res = await api.galleryJoin(slug, {
+        display_name: name.value.trim(),
+        passphrase: pass.input.value,
+        consent: consent.checked,
+      });
+      setCsrf(res.csrf);
+      state.user = res.user;
+      viewWorkspace(slug, res.gallery);
+    } catch (err) {
+      box.replaceChildren(notice(err.message));
+    }
+  };
+
+  show(el('div', { class: 'login-wrap' },
+    el('div', { class: 'card' },
+      el('h1', {}, t('joinTitle')),
+      el('p', { class: 'muted' }, gallery.title),
+      el('p', {}, t('joinIntro')),
+      box,
+      el('form', { onsubmit: submit },
+        el('div', { class: 'field' },
+          el('label', { for: 'jname' }, t('joinName')), name,
+          el('div', { class: 'hint' }, t('joinNameHint'))),
+        pass.node,
+        el('div', { class: 'field' },
+          el('div', { class: 'check' },
+            consent,
+            el('label', { for: 'jconsent' },
+              t('joinConsent'),
+              el('div', { class: 'hint' }, t('joinConsentMore'))))),
+        el('button', { class: 'btn btn-primary btn-lg', type: 'submit', style: 'width:100%' },
+          t('joinButton')),
+        el('p', { class: 'hint center', style: 'margin-top:14px' }, t('joinReturning'))))));
+}
+
+/** A participant's home: their own pictures, and the group's. */
+async function viewWorkspace(slug, gallery) {
+  let mine = [];
+  let ours = [];
+  try { mine = (await api.listCanvases()).canvases; } catch (_) { /* shown empty */ }
+  try { ours = (await api.galleryCanvases(slug)).canvases; } catch (_) { /* shown empty */ }
+  const others = ours.filter((c) => !mine.some((m) => m.id === c.id));
+
+  const card = (canvas, own) => el('div', { class: 'card' },
+    canvas.image_url
+      ? el('img', { class: 'thumb', src: canvas.image_url, alt: canvas.name, loading: 'lazy' })
+      : el('div', { class: 'thumb' }),
+    el('div', { class: 'card-body' },
+      el('h2', {}, canvas.name),
+      el('p', { class: 'muted' },
+        `${canvas.sound_count} ${plural(canvas.sound_count)}`
+        + (own ? '' : ` · ${canvas.owner_name || ''}`)),
+      el('div', { class: 'row' },
+        el('a', { class: 'btn btn-primary', href: `#/play/${canvas.id}` }, t('listen')),
+        own ? el('a', { class: 'btn', href: `#/edit/${canvas.id}` }, t('edit')) : null)));
+
+  show(el('div', { class: 'page' },
+    el('h1', {}, gallery ? gallery.title : t('myPictures')),
+    el('div', { class: 'toolbar' },
+      el('button', {
+        class: 'btn btn-primary btn-lg',
+        onclick: async () => {
+          const created = await api.createCanvas({ name: autoCanvasName() });
+          location.hash = `#/edit/${created.canvas.id}`;
+        },
+      }, '＋ ' + t('newPicture'))),
+    el('h2', {}, t('myPictures')),
+    mine.length
+      ? el('div', { class: 'grid' }, ...mine.map((c) => card(c, true)))
+      : el('div', { class: 'card card-body center' },
+        el('p', {}, t('noCanvases')), el('p', { class: 'muted' }, t('noCanvasesHint'))),
+    others.length ? el('h2', { style: 'margin-top:28px' }, t('groupPictures')) : null,
+    others.length ? el('div', { class: 'grid' }, ...others.map((c) => card(c, false))) : null));
+}
+
+/** "Mon image - 18 septembre": one fewer keyboard moment on a tablet. */
+function autoCanvasName() {
+  const when = new Date().toLocaleDateString(lang(), { day: 'numeric', month: 'long' });
+  return `${lang() === 'fr' ? 'Mon image' : 'My picture'} — ${when}`;
 }
 
 /** Facilitator view: create a gallery per group and hand out its code. */

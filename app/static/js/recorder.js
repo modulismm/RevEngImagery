@@ -6,9 +6,35 @@
  * indicator on, which is alarming for someone who did not expect it.
  */
 
+/**
+ * Why recording is unavailable, or null if it is fine.
+ *
+ * Worth distinguishing, because the causes need different answers from whoever
+ * is standing next to the person: an insecure connection is the facilitator's
+ * problem to fix, an old iPad is not fixable at all.
+ */
+export function unavailableReason() {
+  // getUserMedia requires a secure context. Over plain http the API is simply
+  // absent, which otherwise surfaces as a baffling permissions error.
+  if (typeof window !== 'undefined' && window.isSecureContext === false) return 'insecure';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return 'insecure';
+  if (typeof MediaRecorder === 'undefined') return 'old-browser';
+  return null;
+}
+
 export function isSupported() {
-  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia
-            && typeof MediaRecorder !== 'undefined');
+  return unavailableReason() === null;
+}
+
+/** True for an iPad or iPhone too old for MediaRecorder (before iOS 14.3). */
+export function isOldIos() {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  if (!/iPad|iPhone|iPod/.test(ua)) return false;
+  const match = ua.match(/OS (\d+)[_.](\d+)/);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major < 14 || (major === 14 && minor < 3);
 }
 
 function pickMimeType() {
@@ -33,9 +59,8 @@ export class Recorder {
 
   /** Throws a plain-language Error if the microphone is unavailable or refused. */
   async start() {
-    if (!isSupported()) {
-      throw new Error('This browser cannot record sound. Try uploading a file instead.');
-    }
+    const reason = unavailableReason();
+    if (reason) throw new Error(reason);
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true },

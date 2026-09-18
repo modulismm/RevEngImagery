@@ -297,3 +297,25 @@ def slugify(title: str, fallback: str) -> str:
     while "--" in slug:
         slug = slug.replace("--", "-")
     return slug[:48] or fallback
+
+
+# --------------------------------------------------------------------------- #
+# Participants
+# --------------------------------------------------------------------------- #
+#
+# A participant signs in with the name they are known by -- often their full
+# name -- and a passphrase they choose. Two groups may each contain a "Roger",
+# so the stored login key is namespaced by the group. `display_name` stays
+# exactly what they typed, because that is what everyone sees.
+
+def participant_key(group_slug: str, display_name: str) -> str:
+    return f"{group_slug}/{(display_name or '').strip().lower()}"
+
+
+def participant_name_problem(display_name: str) -> str | None:
+    name = (display_name or "").strip()
+    if len(name) < 2 or len(name) > 60:
+        return "Please type your name, between 2 and 60 letters."
+    if "/" in name:
+        return "Please leave out the / character."
+    return None

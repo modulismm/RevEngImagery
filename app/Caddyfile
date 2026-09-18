@@ -1,0 +1,24 @@
+# Caddy obtains and renews the certificate on its own; there is nothing to run
+# by hand and nothing to remember to renew.
+{
+	email {$IMAGERY_TLS_EMAIL}
+}
+
+{$IMAGERY_DOMAIN} {
+	encode zstd gzip
+
+	# Recordings and photographs are the whole point of the app, so the body
+	# limit has to clear the 25MB the application itself accepts.
+	request_body {
+		max_size 30MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy imagery:8000
+}

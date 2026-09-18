@@ -126,3 +126,37 @@ python3 tools/build_bank.py
 ```
 
 Credits in `docs/SOUND-ATTRIBUTION.md`.
+
+
+## Participants
+
+Workshops are the point: a participant imports a photograph, places sound spots
+on it, and gives each one a sound -- often their own voice. The flow is built for
+someone in their eighties on a borrowed iPad.
+
+A facilitator creates a group and reads out its code. Each person enters the
+code, then chooses the name they are known by and a passphrase (their full name
+works). They see their own pictures and their group's collective gallery, and
+can edit only their own.
+
+- Touching the picture places a spot and immediately asks **record your voice**
+  or **choose a sound** -- placing and filling a spot is one action, not two.
+- New pictures are named automatically, so there is no keyboard moment at the
+  start.
+- Only volume is on screen; reverb, pitch and the equaliser are folded away.
+- **Recording requires HTTPS.** Without it the browser withholds the microphone
+  entirely, and the app now says so plainly instead of failing oddly. It also
+  detects iPads older than iOS 14.3, which cannot record at all.
+
+Personal information and Quebec's Law 25: see `../docs/PRIVACY.md`.
+
+## Deploying
+
+- **On a VPS or small server**: `docker-compose.prod.yml` puts Caddy in front,
+  which obtains and renews a certificate by itself. Set `IMAGERY_DOMAIN` and run
+  `docker compose -f docker-compose.prod.yml up -d --build`. Nothing else.
+- **Behind an existing nginx-proxy-manager**: `docker-compose.yml` publishes on
+  the docker0 gateway and leaves TLS to the proxy. See `../docs/deploy.md`.
+
+Back up with `tools/backup.sh`, which archives the whole data volume and
+verifies the archive. Add it to cron.

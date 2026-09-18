@@ -124,6 +124,8 @@ def may_view_canvas(row):
     if user and (row["owner_id"] == user["id"] or auth.is_admin(user)):
         return True
     if row["room_id"]:
+        if user and user["group_id"] == row["room_id"]:
+            return True                      # a member of that group
         return auth.has_gallery(_conn(), request.cookies.get(GALLERY_COOKIE, ""), row["room_id"])
     return False
 
@@ -170,11 +172,13 @@ def _register(app):
         """
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return None
-        # These three are reached by someone who has no session yet, so there is
-        # no session-derived token to present. Each is rate limited instead, and
-        # a cross-origin caller cannot read the reply.
-        if request.path.startswith(("/api/login", "/api/setup")) or \
-                (request.path.startswith("/api/g/") and request.path.endswith("/unlock")):
+        # Endpoints reached by someone who has no session yet, so there is no
+        # session-derived token for them to present. Each is rate limited, and a
+        # cross-origin caller cannot read the reply.
+        if request.path.startswith(("/api/login", "/api/setup")):
+            return None
+        if request.path.startswith("/api/g/") and \
+                request.path.rsplit("/", 1)[-1] in ("unlock", "join"):
             return None
         token = request.cookies.get(COOKIE, "")
         if not token or not hmac.compare_digest(
@@ -310,13 +314,18 @@ def _register(app):
         data = request.get_json(silent=True) or {}
         user, conn = current_user(), _conn()
         cid = db.new_id()
+        # A participant's work belongs to their group automatically: they never
+        # see a gallery picker, and their pictures must reach the group anyway.
+        room_id = data.get("room_id")
+        if user["role"] == "participant":
+            room_id = user["group_id"]
         conn.execute(
             "INSERT INTO canvas (id, owner_id, name, description, image_path, zones, "
-            "published, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            "published, room_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (cid, user["id"], (data.get("name") or "Untitled").strip()[:120],
              (data.get("description") or "")[:2000], data.get("image_path"),
              json.dumps(_clean_zones(data.get("zones") or [])),
-             1 if data.get("published") else 0, db.now(), db.now()))
+             1 if data.get("published") else 0, room_id, db.now(), db.now()))
         conn.commit()
         return jsonify(canvas=_canvas_json(_canvas_or_none(cid), full=True)), 201
 
@@ -499,6 +508,62 @@ def _register(app):
                         expires=expires, path="/")
         return resp
 
+    @app.post("/api/g/<slug>/join")
+    def gallery_join(slug):
+        """Claim a name inside a group, or sign back in to it.
+
+        Participants have no accounts beforehand: the facilitator creates the
+        group, reads out its code, and each person chooses how they are known
+        and a passphrase. The group code must already have been entered.
+        """
+        conn = _conn()
+        room = conn.execute("SELECT * FROM room WHERE slug = ?", (slug,)).fetchone()
+        if room is None:
+            return jsonify(error="That gallery was not found."), 404
+        if not auth.has_gallery(conn, request.cookies.get(GALLERY_COOKIE, ""), room["id"]):
+            return jsonify(error="Please enter the code for this gallery first."), 403
+
+        data = request.get_json(silent=True) or {}
+        display = (data.get("display_name") or "").strip()
+        problem = auth.participant_name_problem(display)
+        if problem:
+            return jsonify(error=problem), 400
+        phrase = data.get("passphrase") or ""
+        key = auth.participant_key(slug, display)
+        ip = _client_ip()
+
+        row = conn.execute("SELECT * FROM user WHERE name = ? COLLATE NOCASE", (key,)).fetchone()
+        if row is not None:
+            # The name is taken: this is a returning participant signing in.
+            delay = auth.throttle_delay(auth.failed_recently(conn, key, ip))
+            if delay:
+                time.sleep(min(delay, 3.0))
+            ok = auth.verify_passphrase(phrase, row["pass_hash"])
+            auth.record_attempt(conn, key, ip, ok)
+            if not ok:
+                return jsonify(error="That name is already used in this group, and the "
+                                     "passphrase does not match. Try a different name, or "
+                                     "check the passphrase."), 401
+        else:
+            problem = auth.passphrase_problem(phrase, display)
+            if problem:
+                return jsonify(error=problem), 400
+            if not data.get("consent"):
+                return jsonify(error="Please tick the box to continue."), 400
+            uid, _token = auth.create_user(conn, key, display, role="participant",
+                                           passphrase=phrase)
+            conn.execute("UPDATE user SET group_id = ?, consent_at = ? WHERE id = ?",
+                         (room["id"], time.time(), uid))
+            conn.commit()
+            row = conn.execute("SELECT * FROM user WHERE id = ?", (uid,)).fetchone()
+
+        token, expires = auth.create_session(conn, row["id"], True,
+                                             request.headers.get("User-Agent", ""))
+        resp = make_response(jsonify(user=_user_json(row), csrf=_csrf_for(token),
+                                     gallery=_gallery_json(room)))
+        _set_cookie(resp, token, expires)
+        return resp
+
     @app.get("/api/g/<slug>/canvases")
     def gallery_canvases(slug):
         conn = _conn()
@@ -543,6 +608,77 @@ def _register(app):
             return jsonify(error="Someone already uses that name."), 409
         return jsonify(setup_url=f"/setup/{token}", name=name, role=role), 201
 
+    @app.post("/api/users/<uid>/reset")
+    @login_required
+    def reset_user(uid):
+        """Issue a fresh one-time link so someone can choose a new passphrase.
+
+        Participants forget theirs, and the facilitator is the person standing
+        next to them. Nothing is revealed about the old one.
+        """
+        conn = _conn()
+        row = conn.execute("SELECT * FROM user WHERE id = ?", (uid,)).fetchone()
+        if row is None:
+            return jsonify(error="That person was not found."), 404
+        if not _may_manage_user(row):
+            return jsonify(error="That person is in another group."), 403
+        token = secrets.token_urlsafe(24)
+        conn.execute("UPDATE user SET setup_token = ?, pass_hash = NULL WHERE id = ?",
+                     (token, uid))
+        # Any device still signed in as them is signed out.
+        conn.execute("DELETE FROM session WHERE user_id = ?", (uid,))
+        conn.commit()
+        return jsonify(setup_url=f"/setup/{token}", display_name=row["display_name"])
+
+    @app.get("/api/users/<uid>/export")
+    @login_required
+    def export_user(uid):
+        """Everything held about one person, for a right-of-access request.
+
+        Quebec's Law 25 gives people the right to see what is held about them and
+        to have it in a usable form; recordings of an identifiable person are
+        personal information. This returns the record, not the media -- the audio
+        is downloadable at the urls it lists.
+        """
+        conn = _conn()
+        row = conn.execute("SELECT * FROM user WHERE id = ?", (uid,)).fetchone()
+        if row is None:
+            return jsonify(error="That person was not found."), 404
+        if not _may_manage_user(row):
+            return jsonify(error="That person is in another group."), 403
+        canvases = conn.execute(
+            "SELECT c.*, u.display_name AS owner_name FROM canvas c "
+            "JOIN user u ON u.id = c.owner_id WHERE c.owner_id = ?", (uid,)).fetchall()
+        return jsonify(
+            person={"display_name": row["display_name"], "role": row["role"],
+                    "created_at": row["created_at"], "consent_at": row["consent_at"],
+                    "last_seen_at": row["last_seen_at"]},
+            canvases=[_canvas_json(c, full=True) for c in canvases])
+
+    @app.delete("/api/users/<uid>")
+    @login_required
+    def delete_user(uid):
+        """Erase a person and everything they made, media included.
+
+        Law 25 gives a right to withdraw consent and have personal information
+        deleted, so this has to remove the uploaded files too -- dropping the
+        database rows alone would leave the recordings on disk.
+        """
+        conn = _conn()
+        row = conn.execute("SELECT * FROM user WHERE id = ?", (uid,)).fetchone()
+        if row is None:
+            return jsonify(error="That person was not found."), 404
+        if not _may_manage_user(row):
+            return jsonify(error="That person is in another group."), 403
+        if row["role"] == "admin" and conn.execute(
+                "SELECT COUNT(*) AS c FROM user WHERE role = 'admin'").fetchone()["c"] <= 1:
+            return jsonify(error="This is the only administrator."), 400
+
+        removed = _purge_media_for_owner(conn, uid)
+        conn.execute("DELETE FROM user WHERE id = ?", (uid,))
+        conn.commit()
+        return jsonify(ok=True, files_removed=removed)
+
     # ------------------------------------------------------------ static app --
     @app.get("/")
     @app.get("/setup/<path:_t>")
@@ -586,7 +722,8 @@ def _set_cookie(resp, token, expires):
 
 def _user_json(row, admin_view=False):
     out = {"id": row["id"], "name": row["name"],
-           "display_name": row["display_name"], "role": row["role"]}
+           "display_name": row["display_name"], "role": row["role"],
+           "group_id": row["group_id"] if "group_id" in row.keys() else None}
     if admin_view:
         out["canvases"] = row["canvases"] if "canvases" in row.keys() else 0
         out["created_at"] = row["created_at"]
@@ -679,14 +816,72 @@ def _gallery_json(row, manage=False):
     return out
 
 
+def _may_manage_user(row):
+    """An admin, or the facilitator who owns that person's group."""
+    user = current_user()
+    if not user:
+        return False
+    if auth.is_admin(user):
+        return True
+    if not row["group_id"]:
+        return False
+    owner = _conn().execute("SELECT owner_id FROM room WHERE id = ?",
+                            (row["group_id"],)).fetchone()
+    return bool(owner) and owner["owner_id"] == user["id"]
+
+
+def _purge_media_for_owner(conn, uid):
+    """Delete files referenced only by this person's canvases. Returns a count."""
+    rows = conn.execute("SELECT image_path, zones FROM canvas WHERE owner_id = ?",
+                        (uid,)).fetchall()
+    paths = set()
+    for row in rows:
+        if row["image_path"]:
+            paths.add(row["image_path"])
+        try:
+            for zone in json.loads(row["zones"] or "[]"):
+                url = zone.get("url") or ""
+                if url.startswith("/media/"):
+                    paths.add(url[len("/media/"):])
+        except (ValueError, AttributeError):
+            continue
+
+    # Never remove a file another canvas still points at.
+    removed = 0
+    for rel in paths:
+        still_used = conn.execute(
+            "SELECT 1 FROM canvas WHERE owner_id != ? AND "
+            "(image_path = ? OR zones LIKE ?) LIMIT 1",
+            (uid, rel, f"%{rel}%")).fetchone()
+        if still_used:
+            continue
+        target = files.safe_join(UPLOAD_DIR, rel)
+        if target:
+            try:
+                os.remove(target)
+                removed += 1
+            except OSError:
+                pass
+    return removed
+
+
 def _may_manage_gallery(row):
     user = current_user()
     return bool(user) and (row["owner_id"] == user["id"] or auth.is_admin(user))
 
 
 def _may_edit(row):
+    """Own work always; admins anything. A participant never edits another's.
+
+    Everyone in a group shares one code, so without this a misplaced tap could
+    let one person overwrite someone else's picture.
+    """
     user = current_user()
-    return bool(user) and (row["owner_id"] == user["id"] or auth.is_admin(user))
+    if not user:
+        return False
+    if row["owner_id"] == user["id"]:
+        return True
+    return auth.is_admin(user)
 
 
 app = create_app() if os.environ.get("IMAGERY_EAGER") else None

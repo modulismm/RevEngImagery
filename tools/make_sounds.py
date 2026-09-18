@@ -534,15 +534,150 @@ MEMORY = [
 ]
 
 
+# --------------------------------------------------------------------------- #
+# Places and machines.
+#
+# Driven by what participants actually reach for: a house by the sea, a car in
+# the drive, a workroom. Roger's example -- water, an engine, a chair -- is the
+# shape of most of these sessions.
+# --------------------------------------------------------------------------- #
+
+def engine(seconds=6.0):
+    """A four-cylinder idling: a pulse train with combustion noise on each firing."""
+    n = int(RATE * seconds)
+    buf = silence(seconds)
+    rpm = 780.0
+    firings_per_second = rpm / 60 * 2          # four-stroke, four cylinders
+    period = 1.0 / firings_per_second
+    body = OnePole(400)
+    t = 0.0
+    while t < seconds:
+        at = int(t * RATE)
+        length = int(0.055 * RATE)
+        for i in range(length):
+            if at + i >= n:
+                break
+            frac = i / length
+            env = math.exp(-14.0 * frac)
+            buf[at + i] += 0.5 * env * body(random.uniform(-1, 1))
+            buf[at + i] += 0.28 * env * math.sin(2 * math.pi * 92 * i / RATE)
+        # Idle is never perfectly even; the wobble is what makes it read as real.
+        t += period * random.uniform(0.94, 1.06)
+    rumble = OnePole(160)
+    for i in range(n):
+        buf[i] += rumble(random.uniform(-1, 1)) * 0.16
+    return normalise(envelope(buf, 0.15, 0.4))
+
+
+def boat_motor(seconds=6.0):
+    """A small outboard: slower and wetter than a car."""
+    n = int(RATE * seconds)
+    buf = silence(seconds)
+    period = 1.0 / 9.0
+    body = OnePole(320)
+    t = 0.0
+    while t < seconds:
+        at = int(t * RATE)
+        length = int(0.08 * RATE)
+        for i in range(length):
+            if at + i >= n:
+                break
+            frac = i / length
+            env = math.exp(-9.0 * frac)
+            buf[at + i] += 0.55 * env * body(random.uniform(-1, 1))
+            buf[at + i] += 0.3 * env * math.sin(2 * math.pi * 64 * i / RATE)
+        t += period * random.uniform(0.93, 1.07)
+    wash = OnePole(900)
+    for i in range(n):
+        buf[i] += wash(random.uniform(-1, 1)) * 0.12
+    return normalise(envelope(buf, 0.2, 0.5))
+
+
+def seagulls(seconds=6.0):
+    """Gull cries: a harsh descending call, repeated in threes."""
+    n = int(RATE * seconds)
+    buf = silence(seconds)
+    t = 0.4
+    while t < seconds - 1.0:
+        calls = random.randint(2, 4)
+        for call in range(calls):
+            at = int((t + call * random.uniform(0.28, 0.4)) * RATE)
+            length = int(random.uniform(0.18, 0.3) * RATE)
+            f0 = random.uniform(900, 1250)
+            phase = 0.0
+            for i in range(length):
+                if at + i >= n:
+                    break
+                frac = i / length
+                freq = f0 * (1.25 - 0.45 * frac)
+                phase += 2 * math.pi * freq / RATE
+                env = math.sin(math.pi * frac) ** 0.7
+                # A gull is rasping, not pure: odd harmonics plus a little noise.
+                buf[at + i] += 0.3 * env * (math.sin(phase)
+                                            + 0.45 * math.sin(3 * phase)
+                                            + 0.2 * random.uniform(-1, 1))
+        t += random.uniform(1.4, 2.4)
+    return normalise(envelope(buf, 0.05, 0.35))
+
+
+def sewing_machine(seconds=5.0):
+    """A treadle machine: rapid needle strikes with a motor underneath."""
+    n = int(RATE * seconds)
+    buf = silence(seconds)
+    motor = OnePole(500)
+    for i in range(n):
+        buf[i] += motor(random.uniform(-1, 1)) * 0.14
+    t, period = 0.4, 0.085
+    while t < seconds - 0.3:
+        at = int(t * RATE)
+        length = int(0.02 * RATE)
+        for i in range(length):
+            if at + i >= n:
+                break
+            buf[at + i] += 0.6 * math.exp(-42.0 * i / length) * random.uniform(-1, 1)
+        _tone(buf, 1500, at, int(0.02 * RATE), 0.22, 30.0)
+        t += period
+    return normalise(envelope(buf, 0.15, 0.35))
+
+
+def harmonium(seconds=5.0):
+    """A wheezy reed chord -- accordion, harmonium, a parlour organ."""
+    n = int(RATE * seconds)
+    buf = silence(seconds)
+    for semitone in (0, 4, 7):
+        freq = 220.0 * (2 ** (semitone / 12))
+        for i in range(n):
+            frac = i / n
+            env = min(1.0, frac * 5) * min(1.0, (1 - frac) * 5)
+            # Reeds beat slightly against each other; that is the character.
+            detune = 1.0 + 0.004 * math.sin(2 * math.pi * 4.5 * i / RATE)
+            for harmonic, amp in ((1, 1.0), (2, 0.4), (3, 0.28), (5, 0.12)):
+                buf[i] += 0.1 * amp * env * math.sin(
+                    2 * math.pi * freq * harmonic * detune * i / RATE)
+    breath = OnePole(2200, highpass=True)
+    for i in range(n):
+        buf[i] += breath(random.uniform(-1, 1)) * 0.04
+    return normalise(envelope(buf, 0.2, 0.5))
+
+
+PLACES = [
+    ("engine",  "Car engine",     "Moteur de voiture",  engine),
+    ("boat",    "Boat motor",     "Moteur de bateau",   boat_motor),
+    ("seagulls", "Seagulls",      "Goélands",           seagulls),
+    ("sewing",  "Sewing machine", "Machine à coudre",   sewing_machine),
+    ("organ",   "Reed organ",     "Accordéon",          harmonium),
+]
+
+
 def main():
     out_dir = sys.argv[1] if len(sys.argv) > 1 else "app/static/sounds/_raw"
     os.makedirs(out_dir, exist_ok=True)
     random.seed(20260918)               # reproducible bank
-    for slug, label_en, label_fr, fn in GENERATED + MEMORY:
+    for slug, label_en, label_fr, fn in GENERATED + MEMORY + PLACES:
         path = os.path.join(out_dir, f"{slug}.wav")
         write_wav(path, fn())
         print(f"  {slug:10} {os.path.getsize(path) // 1024:5}KB  {label_en} / {label_fr}")
-    print(f"\n{len(GENERATED) + len(MEMORY)} sounds synthesised -> {out_dir}")
+    print(f"\n{len(GENERATED) + len(MEMORY) + len(PLACES)} sounds synthesised -> {out_dir}")
 
 
 if __name__ == "__main__":

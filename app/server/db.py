@@ -17,8 +17,12 @@ CREATE TABLE IF NOT EXISTS user (
     name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
     display_name  TEXT NOT NULL,
     pass_hash     TEXT,              -- NULL until the first-login setup link is used
+    -- 'participant' is someone in a workshop group: they author their own
+    -- pictures and see their group's collective gallery, and nothing else.
     role          TEXT NOT NULL DEFAULT 'user'
-                  CHECK (role IN ('user', 'admin')),
+                  CHECK (role IN ('user', 'admin', 'participant')),
+    group_id      TEXT REFERENCES room(id) ON DELETE CASCADE,
+    consent_at    REAL,
     setup_token   TEXT,              -- one-time; lets an admin onboard without email
     created_at    REAL NOT NULL,
     last_seen_at  REAL
@@ -120,6 +124,8 @@ def connect(path=None):
 _ADDED_COLUMNS = (
     ("room", "slug", "TEXT"),
     ("room", "pin_hash", "TEXT"),
+    ("user", "group_id", "TEXT"),
+    ("user", "consent_at", "REAL"),
 )
 
 
@@ -128,23 +134,105 @@ def _ensure_columns(conn):
         existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if not existing:
             continue                       # table not created yet; schema will do it
-        if column not in existing:
+        if column in existing:
+            continue
+        try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        except sqlite3.OperationalError as exc:
+            # Another worker added it between the PRAGMA and here.
+            if "duplicate column" not in str(exc).lower():
+                raise
+
+
+def _relax_role_check(conn):
+    """Allow the 'participant' role on databases created before it existed.
+
+    The CHECK constraint lives in the CREATE TABLE statement, so it cannot be
+    altered in place -- the table has to be rebuilt. This runs once: afterwards
+    the probe insert succeeds and it returns immediately.
+    """
+    try:
+        conn.execute("SAVEPOINT role_probe")
+        conn.execute(
+            "INSERT INTO user (id, name, display_name, role, created_at) "
+            "VALUES ('__probe__', '__probe__', '__probe__', 'participant', 0)")
+        conn.execute("ROLLBACK TO role_probe")
+        conn.execute("RELEASE role_probe")
+        return                                   # constraint already allows it
+    except sqlite3.IntegrityError:
+        conn.execute("ROLLBACK TO role_probe")
+        conn.execute("RELEASE role_probe")
+    except sqlite3.OperationalError:
+        return                                   # table not created yet
+
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(user)")]
+    joined = ", ".join(cols)
+    try:
+        conn.executescript(f"""
+        PRAGMA foreign_keys = OFF;
+        BEGIN;
+        CREATE TABLE user_new (
+            id            TEXT PRIMARY KEY,
+            name          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            display_name  TEXT NOT NULL,
+            pass_hash     TEXT,
+            role          TEXT NOT NULL DEFAULT 'user'
+                          CHECK (role IN ('user', 'admin', 'participant')),
+            group_id      TEXT,
+            consent_at    REAL,
+            setup_token   TEXT,
+            created_at    REAL NOT NULL,
+            last_seen_at  REAL
+        );
+        INSERT INTO user_new ({joined}) SELECT {joined} FROM user;
+        DROP TABLE user;
+        ALTER TABLE user_new RENAME TO user;
+        COMMIT;
+        PRAGMA foreign_keys = ON;
+    """)
+    except sqlite3.OperationalError as exc:
+        # Another worker rebuilt it first; its table is the one we want anyway.
+        if "user_new" not in str(exc) and "no such table" not in str(exc).lower():
+            raise
 
 
 def migrate(conn):
-    """Create the schema and, once, switch the file to WAL.
+    """Bring the database up to date. Safe to run from several workers at once.
 
-    Both are safe to run from several workers at the same time: the CREATE
-    statements are IF NOT EXISTS, and a WAL switch that loses the race just
-    means another worker already did it.
+    Every gunicorn worker calls this at boot, so all of it races. Three
+    protections, because each failed differently in practice:
+
+    * WAL is set inside a try -- losing that race just means another worker
+      already set the same value.
+    * The whole migration takes an advisory lock, so normally only one worker
+      does the work and the others find it already done.
+    * Each step is still individually idempotent, because the lock is advisory
+      and a worker can arrive after it has been released.
     """
     try:
         conn.execute("PRAGMA journal_mode = WAL")
     except sqlite3.OperationalError:
-        pass          # another worker holds the lock; it is setting the same value
+        pass
+
     conn.executescript(SCHEMA)
-    _ensure_columns(conn)
+
+    # Serialise the parts that cannot simply be re-run. busy_timeout (set in
+    # connect) makes a competing worker wait here rather than fail.
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        holding = True
+    except sqlite3.OperationalError:
+        holding = False
+
+    try:
+        _ensure_columns(conn)
+        _relax_role_check(conn)
+    finally:
+        if holding:
+            try:
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
     conn.commit()
 
 

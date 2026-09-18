@@ -1,0 +1,50 @@
+# Production: Imagery behind Caddy, which obtains and renews a certificate by
+# itself. Intended for a VPS or a small server where nothing else is fronting
+# the app.
+#
+#   cp .env.example .env     # set IMAGERY_DOMAIN and IMAGERY_ADMIN
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# HTTPS is not optional here: microphone recording requires a secure context, so
+# without a certificate participants cannot record anything at all.
+#
+# Behind an existing nginx-proxy-manager instead? Use docker-compose.yml, which
+# publishes on the docker0 gateway and leaves TLS to the proxy.
+
+services:
+  imagery:
+    build: .
+    container_name: imagery
+    restart: unless-stopped
+    expose:
+      - "8000"
+    volumes:
+      - imagery_data:/data
+    environment:
+      - IMAGERY_ADMIN=${IMAGERY_ADMIN:-bear}
+      - IMAGERY_ADMIN_PASSPHRASE=${IMAGERY_ADMIN_PASSPHRASE:-}
+      - IMAGERY_SECURE_COOKIE=1
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: imagery-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - IMAGERY_DOMAIN=${IMAGERY_DOMAIN:?set IMAGERY_DOMAIN in .env}
+      - IMAGERY_TLS_EMAIL=${IMAGERY_TLS_EMAIL:-}
+    depends_on:
+      - imagery
+
+volumes:
+  imagery_data:
+  caddy_data:
+  caddy_config:

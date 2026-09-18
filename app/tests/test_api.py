@@ -357,3 +357,174 @@ def test_non_owner_cannot_manage_a_gallery(client):
     assert client.put(f"/api/galleries/{g['id']}", json={"title": "mine"}, headers=h2).status_code == 403
     assert client.delete(f"/api/galleries/{g['id']}", headers=h2).status_code == 403
     assert client.get("/api/galleries").get_json()["galleries"] == []
+
+
+# ----------------------------------------------------------- participants --
+
+def unlock(client, slug, pin="4817"):
+    return client.post(f"/api/g/{slug}/unlock", json={"pin": pin})
+
+
+def join(client, slug, name="Roger", phrase="la maison au bord de la mer"):
+    return client.post(f"/api/g/{slug}/join",
+                       json={"display_name": name, "passphrase": phrase, "consent": True})
+
+
+def test_participant_must_enter_the_group_code_first(client):
+    csrf = login(client)
+    slug = make_gallery(client, csrf).get_json()["gallery"]["slug"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+    assert join(client, slug).status_code == 403
+
+
+def test_participant_joins_and_owns_their_work(client):
+    csrf = login(client)
+    slug = make_gallery(client, csrf).get_json()["gallery"]["slug"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+
+    unlock(client, slug)
+    r = join(client, slug)
+    assert r.status_code == 200, r.get_json()
+    me = r.get_json()["user"]
+    assert me["role"] == "participant"
+    assert me["display_name"] == "Roger"
+
+    c = client.post("/api/canvases", json={"name": "La maison"},
+                    headers={"X-CSRF-Token": r.get_json()["csrf"]})
+    assert c.status_code == 201
+    # It lands in the group automatically -- participants see no gallery picker.
+    assert c.get_json()["canvas"]["room_id"] is not None
+
+
+def test_consent_is_required_to_join(client):
+    csrf = login(client)
+    slug = make_gallery(client, csrf).get_json()["gallery"]["slug"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+    unlock(client, slug)
+    r = client.post(f"/api/g/{slug}/join",
+                    json={"display_name": "Roger", "passphrase": "la maison au bord", "consent": False})
+    assert r.status_code == 400
+
+
+def test_returning_participant_signs_back_in(client):
+    csrf = login(client)
+    slug = make_gallery(client, csrf).get_json()["gallery"]["slug"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+    unlock(client, slug)
+    csrf1 = join(client, slug).get_json()["csrf"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf1})
+
+    unlock(client, slug)
+    assert join(client, slug).status_code == 200                     # same passphrase
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf1})
+    unlock(client, slug)
+    assert join(client, slug, phrase="wrong one entirely").status_code == 401
+
+
+def test_same_name_in_two_groups_is_two_people(client):
+    csrf = login(client)
+    a = make_gallery(client, csrf, "Groupe A", "4817").get_json()["gallery"]
+    b = make_gallery(client, csrf, "Groupe B", "5293").get_json()["gallery"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+
+    unlock(client, a["slug"], "4817")
+    ra = join(client, a["slug"], "Roger", "la maison au bord de la mer")
+    assert ra.status_code == 200
+    client.post("/api/logout", headers={"X-CSRF-Token": ra.get_json()["csrf"]})
+
+    unlock(client, b["slug"], "5293")
+    rb = join(client, b["slug"], "Roger", "un tout autre secret ici")
+    assert rb.status_code == 200, rb.get_json()
+    assert rb.get_json()["user"]["id"] != ra.get_json()["user"]["id"]
+
+
+def test_participants_share_a_gallery_but_not_edit_rights(client):
+    csrf = login(client)
+    slug = make_gallery(client, csrf).get_json()["gallery"]["slug"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+
+    unlock(client, slug)
+    r1 = join(client, slug, "Roger", "la maison au bord de la mer")
+    cid = client.post("/api/canvases", json={"name": "La maison"},
+                      headers={"X-CSRF-Token": r1.get_json()["csrf"]}).get_json()["canvas"]["id"]
+    client.post("/api/logout", headers={"X-CSRF-Token": r1.get_json()["csrf"]})
+
+    unlock(client, slug)
+    r2 = join(client, slug, "Denise", "le jardin de ma grand mere")
+    h2 = {"X-CSRF-Token": r2.get_json()["csrf"]}
+    # Denise can see Roger's picture in the collective gallery...
+    assert client.get(f"/api/canvases/{cid}").status_code == 200
+    # ...but cannot change or delete it.
+    assert client.put(f"/api/canvases/{cid}", json={"name": "mine"}, headers=h2).status_code == 403
+    assert client.delete(f"/api/canvases/{cid}", headers=h2).status_code == 403
+    # And only sees her own in her own list.
+    assert client.get("/api/canvases").get_json()["canvases"] == []
+
+
+# --------------------------------------------------- recovery and erasure --
+
+def test_admin_can_reissue_a_passphrase_link(client):
+    csrf = login(client)
+    slug = make_gallery(client, csrf).get_json()["gallery"]["slug"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+    unlock(client, slug)
+    uid = join(client, slug).get_json()["user"]["id"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+
+    csrf = login(client)
+    r = client.post(f"/api/users/{uid}/reset", headers={"X-CSRF-Token": csrf})
+    assert r.status_code == 200
+    token = r.get_json()["setup_url"].rsplit("/", 1)[-1]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+    assert client.post(f"/api/setup/{token}",
+                       json={"passphrase": "un nouveau secret ici"}).status_code == 200
+
+
+def test_erasing_a_person_removes_their_work_and_media(client):
+    csrf = login(client)
+    slug = make_gallery(client, csrf).get_json()["gallery"]["slug"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+    unlock(client, slug)
+    joined = join(client, slug).get_json()
+    h = {"X-CSRF-Token": joined["csrf"]}
+    up = client.post("/api/upload/image", headers=h,
+                     data={"file": (io.BytesIO(PNG), "x.png")},
+                     content_type="multipart/form-data").get_json()
+    cid = client.post("/api/canvases", json={"name": "La maison"},
+                      headers=h).get_json()["canvas"]["id"]
+    client.put(f"/api/canvases/{cid}", json={"image_path": up["path"]}, headers=h)
+    assert client.get(f"/media/{up['path']}").status_code == 200
+    client.post("/api/logout", headers=h)
+
+    csrf = login(client)
+    r = client.delete(f"/api/users/{joined['user']['id']}", headers={"X-CSRF-Token": csrf})
+    assert r.status_code == 200
+    assert r.get_json()["files_removed"] >= 1
+    assert client.get(f"/media/{up['path']}").status_code == 404
+    assert client.get(f"/api/canvases/{cid}").status_code == 404
+
+
+def test_export_returns_what_is_held_about_a_person(client):
+    csrf = login(client)
+    slug = make_gallery(client, csrf).get_json()["gallery"]["slug"]
+    client.post("/api/logout", headers={"X-CSRF-Token": csrf})
+    unlock(client, slug)
+    joined = join(client, slug).get_json()
+    client.post("/api/canvases", json={"name": "La maison"},
+                headers={"X-CSRF-Token": joined["csrf"]})
+    client.post("/api/logout", headers={"X-CSRF-Token": joined["csrf"]})
+
+    csrf = login(client)
+    r = client.get(f"/api/users/{joined['user']['id']}/export")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["person"]["display_name"] == "Roger"
+    assert data["person"]["consent_at"] is not None
+    assert [c["name"] for c in data["canvases"]] == ["La maison"]
+
+
+def test_the_last_admin_cannot_be_deleted(client):
+    csrf = login(client)
+    me = client.get("/api/me").get_json()["user"]
+    r = client.delete(f"/api/users/{me['id']}", headers={"X-CSRF-Token": csrf})
+    assert r.status_code == 400

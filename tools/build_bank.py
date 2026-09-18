@@ -29,11 +29,17 @@ SCRAPED_LABELS = {
 # open on purpose -- participants decide what matters -- so this is only a
 # sensible reading order, not a taxonomy.
 ORDER = [
+    # weather and water
     "rain", "rainwindow", "wind", "waves", "thunder",
-    "birds", "crickets", "fire", "water", "snowsteps",
-    "clock", "metronome", "kettle", "spoon", "musicbox",
-    "telephone", "typewriter", "radio", "door", "floor",
-    "bell", "chime", "train", "whistle", "heartbeat",
+    # outdoors
+    "birds", "seagulls", "crickets", "fire", "snowsteps", "water",
+    # the house
+    "clock", "metronome", "kettle", "spoon", "door", "floor",
+    # machines and instruments
+    "telephone", "typewriter", "radio", "sewing", "musicbox", "organ",
+    "engine", "boat", "train", "whistle",
+    # bells and body
+    "bell", "chime", "heartbeat",
 ]
 
 
