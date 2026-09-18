@@ -385,11 +385,19 @@ def _register(app):
     @app.get("/canvas/<path:_t>")
     @app.get("/gallery")
     def index(_t=None):
-        return send_from_directory(STATIC_DIR, "index.html")
+        resp = send_from_directory(STATIC_DIR, "index.html")
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
 
     @app.get("/static/<path:rel>")
     def static_files(rel):
-        return send_from_directory(STATIC_DIR, rel, max_age=3600)
+        # max_age=0 means "revalidate", not "re-download": Flask still sends an
+        # ETag, so an unchanged file answers 304. A long max_age here meant a
+        # deploy could stay invisible for an hour, which is worse than the
+        # handful of conditional requests this costs.
+        resp = send_from_directory(STATIC_DIR, rel, max_age=0, conditional=True)
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
 
     @app.get("/healthz")
     def healthz():
@@ -464,11 +472,23 @@ def _clean_zones(zones):
     return out
 
 
+# Uploads live under /media/; the shipped sound bank is a static asset.
+_ALLOWED_URL_PREFIXES = ("/media/", "/static/sounds/")
+
+
 def _clean_media_url(url):
-    """Only same-origin /media/ references are kept, so a zone cannot point elsewhere."""
-    if isinstance(url, str) and url.startswith("/media/") and ".." not in url:
-        return url[:300]
-    return None
+    """Keep only same-origin references, so a zone cannot point at another host.
+
+    Rejects protocol-relative ("//evil.example/x") and traversal forms as well as
+    absolute URLs -- anything that is not one of our own two prefixes.
+    """
+    if not isinstance(url, str):
+        return None
+    if ".." in url or url.startswith("//"):
+        return None
+    if not any(url.startswith(prefix) for prefix in _ALLOWED_URL_PREFIXES):
+        return None
+    return url[:300]
 
 
 def _clamp(value, lo, hi, default):

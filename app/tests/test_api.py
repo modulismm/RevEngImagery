@@ -227,3 +227,21 @@ def test_unknown_zone_type_falls_back_to_custom(client):
                    json={"zones": [{"type": "something-else", "radius": 200}]},
                    headers=h).get_json()["canvas"]["zones"][0]
     assert z["type"] == "custom"
+
+
+@pytest.mark.parametrize("url,kept", [
+    ("/media/audio/a.webm", True),
+    ("/static/sounds/rain.mp3", True),
+    ("https://evil.example/x.webm", False),
+    ("//evil.example/x.webm", False),
+    ("/media/../../etc/passwd", False),
+    ("/etc/passwd", False),
+    ("", False),
+])
+def test_zone_url_allowlist(client, url, kept):
+    csrf = login(client)
+    h = {"X-CSRF-Token": csrf}
+    cid = client.post("/api/canvases", json={"name": "c"}, headers=h).get_json()["canvas"]["id"]
+    z = client.put(f"/api/canvases/{cid}", json={"zones": [{"url": url, "radius": 200}]},
+                   headers=h).get_json()["canvas"]["zones"][0]
+    assert (z["url"] == url) is kept

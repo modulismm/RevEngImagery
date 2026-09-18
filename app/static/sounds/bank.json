@@ -1,0 +1,92 @@
+[
+  {
+    "slug": "rain",
+    "label_en": "Rain",
+    "label_fr": "Pluie",
+    "url": "/static/sounds/rain.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "wind",
+    "label_en": "Wind",
+    "label_fr": "Vent",
+    "url": "/static/sounds/wind.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "waves",
+    "label_en": "Waves",
+    "label_fr": "Vagues",
+    "url": "/static/sounds/waves.mp3",
+    "licence": "CC BY 3.0",
+    "source": "Wikimedia Commons",
+    "bytes": 96279
+  },
+  {
+    "slug": "thunder",
+    "label_en": "Thunder",
+    "label_fr": "Tonnerre",
+    "url": "/static/sounds/thunder.mp3",
+    "licence": "Public domain",
+    "source": "Wikimedia Commons",
+    "bytes": 96592
+  },
+  {
+    "slug": "fire",
+    "label_en": "Fire",
+    "label_fr": "Feu",
+    "url": "/static/sounds/fire.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "birds",
+    "label_en": "Birds",
+    "label_fr": "Oiseaux",
+    "url": "/static/sounds/birds.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "crickets",
+    "label_en": "Crickets",
+    "label_fr": "Grillons",
+    "url": "/static/sounds/crickets.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 72768
+  },
+  {
+    "slug": "water",
+    "label_en": "Water drop",
+    "label_fr": "Goutte d'eau",
+    "url": "/static/sounds/water.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 20106
+  },
+  {
+    "slug": "bell",
+    "label_en": "Bell",
+    "label_fr": "Cloche",
+    "url": "/static/sounds/bell.mp3",
+    "licence": "Public domain",
+    "source": "Wikimedia Commons",
+    "bytes": 55841
+  },
+  {
+    "slug": "chime",
+    "label_en": "Chime",
+    "label_fr": "Carillon",
+    "url": "/static/sounds/chime.mp3",
+    "licence": "CC0",
+    "source": "synthesised",
+    "bytes": 39227
+  }
+]

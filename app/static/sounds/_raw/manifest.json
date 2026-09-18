@@ -1,0 +1,41 @@
+[
+  {
+    "title": "File:Small sea waves at rocky beach.opus",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/b/b9/Small_sea_waves_at_rocky_beach.opus?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "size": 18817,
+    "mime": "application/ogg",
+    "licence": "CC BY 3.0",
+    "author": "mnalis",
+    "page": "https://commons.wikimedia.org/wiki/File:Small_sea_waves_at_rocky_beach.opus",
+    "slug": "waves",
+    "label_en": "Waves",
+    "label_fr": "Vagues",
+    "file": "app/static/sounds/_raw/waves.ogg"
+  },
+  {
+    "title": "File:Old school bell 4.ogg",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/1/13/Old_school_bell_4.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "size": 80251,
+    "mime": "application/ogg",
+    "licence": "Public domain",
+    "author": "ezwa",
+    "page": "https://commons.wikimedia.org/wiki/File:Old_school_bell_4.ogg",
+    "slug": "bell",
+    "label_en": "Bell",
+    "label_fr": "Cloche",
+    "file": "app/static/sounds/_raw/bell.ogg"
+  },
+  {
+    "title": "File:Thunder and rain on a v.ogg",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/e/e7/Thunder_and_rain_on_a_v.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "size": 388275,
+    "mime": "application/ogg",
+    "licence": "Public domain",
+    "author": "ezwa",
+    "page": "https://commons.wikimedia.org/wiki/File:Thunder_and_rain_on_a_v.ogg",
+    "slug": "thunder",
+    "label_en": "Thunder",
+    "label_fr": "Tonnerre",
+    "file": "app/static/sounds/_raw/thunder.ogg"
+  }
+]

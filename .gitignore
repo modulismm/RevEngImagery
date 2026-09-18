@@ -6,3 +6,12 @@
 *.webp
 !screenshots/*.png
 !screenshots/*.jpg
+
+# Sound-bank intermediates: the shipped MP3s are committed, the originals and
+# synthesiser output are reproducible via tools/ and would just bloat the repo.
+app/static/sounds/_raw/*.wav
+app/static/sounds/_raw/*.ogg
+app/static/sounds/_raw/*.opus
+app/static/sounds/_raw/*.flac
+!app/static/sounds/_raw/manifest.json
+!app/static/sounds/*.mp3

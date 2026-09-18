@@ -328,6 +328,20 @@ async function viewPlay(id) {
 }
 
 
+
+/* The shipped sound bank, described by static/sounds/bank.json. Fetched once
+ * per session; a missing file just means the bank tab says so, rather than the
+ * picker breaking. */
+let bankPromise = null;
+function loadBank() {
+  if (!bankPromise) {
+    bankPromise = fetch('/static/sounds/bank.json', { credentials: 'same-origin' })
+      .then((res) => (res.ok ? res.json() : []))
+      .catch(() => []);
+  }
+  return bankPromise;
+}
+
 /* ------------------------------------------------------- sound picker ---- */
 
 /**
@@ -338,8 +352,7 @@ async function viewPlay(id) {
  */
 function buildSoundPicker(zone, onChange, onError) {
   const wrap = el('div', { class: 'field' });
-  let tab = zone.type === 'generated' ? 'generated' : (zone.url ? 'upload' : 'record');
-  if (!canRecord() && tab === 'record') tab = 'upload';
+  let tab = zone.type === 'generated' ? 'generated' : 'bank';
 
   const body = el('div', {});
   const recorder = new Recorder();
@@ -444,6 +457,33 @@ function buildSoundPicker(zone, onChange, onError) {
       input, current());
   }
 
+  function renderBank() {
+    body.replaceChildren(el('p', { class: 'muted' }, t('loadingBank')));
+    loadBank().then((sounds) => {
+      if (tab !== 'bank') return;                       // tab changed while loading
+      if (!sounds.length) {
+        body.replaceChildren(el('p', { class: 'muted' }, t('bankEmpty')));
+        return;
+      }
+      body.replaceChildren(el('div', { class: 'preset-grid' },
+        ...sounds.map((sound) => {
+          const label = lang() === 'fr' ? (sound.label_fr || sound.label_en) : sound.label_en;
+          return el('div', { class: 'bank-item' },
+            el('button', {
+              class: 'preset', type: 'button',
+              'aria-pressed': String(zone.url === sound.url),
+              onclick: async () => {
+                zone.url = sound.url;
+                zone.type = 'custom';
+                if (!zone.sound_name || zone.sound_name === 'Beep') zone.sound_name = label;
+                await onChange();
+              },
+            }, label, el('span', { class: 'hz' }, sound.licence || '')),
+            el('audio', { controls: true, preload: 'none', src: sound.url }));
+        })));
+    });
+  }
+
   function renderGenerated() {
     body.replaceChildren(el('div', { class: 'preset-grid' },
       ...GENERATED_PRESETS.map((preset) => el('button', {
@@ -464,11 +504,13 @@ function buildSoundPicker(zone, onChange, onError) {
       el('label', {}, t('soundFor')),
       el('div', { class: 'tabs', role: 'tablist' },
         canRecord() ? tabButton('record', t('record')) : null,
+        tabButton('bank', t('bank')),
         tabButton('upload', t('upload')),
         tabButton('generated', t('generated'))),
       body);
     if (tab === 'record') renderRecord();
     else if (tab === 'generated') renderGenerated();
+    else if (tab === 'bank') renderBank();
     else renderUpload();
   }
 
@@ -478,106 +520,211 @@ function buildSoundPicker(zone, onChange, onError) {
 
 /* ------------------------------------------------------------------ editor */
 
+/** Trailing debounce: the editor saves as you work, without a request per pixel. */
+function debounce(fn, ms) {
+  let timer = null;
+  const wrapped = (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; fn(...args); }, ms);
+  };
+  wrapped.flush = () => { if (timer) { clearTimeout(timer); timer = null; fn(); } };
+  return wrapped;
+}
+
 async function viewEdit(id) {
   const { canvas } = await api.getCanvas(id);
-  let zones = canvas.zones.slice();
-  let selected = null;
-  let imagePath = canvas.image_path;
+
+  const model = {
+    name: canvas.name,
+    imagePath: canvas.image_path,
+    zones: canvas.zones.slice(),
+  };
+  let selectedId = null;
 
   const img = el('img', { class: 'stage', src: canvas.image_url || '', alt: canvas.name });
   const layer = el('div', { class: 'zone-layer' });
   const stage = el('div', { class: 'stage-wrap' }, img, layer);
   const panel = el('div', { class: 'card panel' });
+  const status = el('span', { class: 'save-state', role: 'status' }, '');
   const msg = el('div', {});
 
-  const nameInput = el('input', { type: 'text', value: canvas.name, id: 'cname' });
+  const nameInput = el('input', {
+    type: 'text', value: model.name, id: 'cname',
+    oninput: (e) => { model.name = e.target.value; saveSoon(); },
+  });
 
-  const save = async () => {
-    await api.updateCanvas(id, { name: nameInput.value, zones, image_path: imagePath });
-    msg.replaceChildren(notice(t('savedOk'), 'ok'));
-    setTimeout(() => msg.replaceChildren(), 2500);
-  };
+  const hasImage = () => !!model.imagePath;
 
-  /* --- image upload --- */
+  /* ------------------------------------------------------------- saving -- */
+
+  let saving = false;
+  async function saveNow() {
+    if (saving) { saveSoon(); return; }
+    saving = true;
+    status.textContent = t('saving');
+    try {
+      await api.updateCanvas(id, {
+        name: model.name, zones: model.zones, image_path: model.imagePath,
+      });
+      status.textContent = t('savedOk');
+      setTimeout(() => { if (status.textContent === t('savedOk')) status.textContent = ''; }, 2000);
+    } catch (err) {
+      status.textContent = '';
+      msg.replaceChildren(notice(err.message));
+    } finally {
+      saving = false;
+    }
+  }
+  const saveSoon = debounce(saveNow, 700);
+
+  /* ------------------------------------------------------- zone geometry -- */
+
+  const zoneById = (zid) => model.zones.find((z) => z.id === zid);
+
+  /** Position and size only -- called on every drag frame, so it must stay cheap. */
+  function placeZone(zone, node) {
+    const centre = makeMapper(img)(zone.x, zone.y);
+    const size = Number(zone.radius) || 0;       // stored field is a diameter
+    node.style.left = `${centre.x}px`;
+    node.style.top = `${centre.y}px`;
+    node.style.width = `${size}px`;
+    node.style.height = `${size}px`;
+  }
+
+  /** Rebuild the zone nodes. Structural only -- never called during a drag. */
+  function renderZones() {
+    layer.replaceChildren(...model.zones.map((zone) => {
+      const node = el('div', {
+        class: `zone${selectedId === zone.id ? ' is-active' : ''}`,
+        'data-zone': zone.id,
+        title: zone.sound_name || '',
+        onpointerdown: (event) => beginDrag(event, zone, node, 'move'),
+      },
+        el('span', { class: 'zone-label' }, zone.sound_name || ''),
+        el('div', {
+          class: 'zone-handle', title: t('resizeZone'),
+          onpointerdown: (event) => beginDrag(event, zone, node, 'resize'),
+        }),
+        el('button', {
+          class: 'zone-del', type: 'button', 'aria-label': `${t('removeZone')}: ${zone.sound_name || ''}`,
+          // pointerdown would otherwise start a drag before the click lands
+          onpointerdown: (event) => event.stopPropagation(),
+          onclick: (event) => { event.stopPropagation(); removeZone(zone.id); },
+        }, '✕'));
+      placeZone(zone, node);
+      return node;
+    }));
+  }
+
+  function beginDrag(event, zone, node, mode) {
+    event.preventDefault();
+    event.stopPropagation();
+    select(zone.id);
+    const box = img.getBoundingClientRect();
+    const width = img.clientWidth || 1;
+    const height = img.clientHeight || 1;
+
+    const move = (ev) => {
+      const px = ev.clientX - box.left;
+      const py = ev.clientY - box.top;
+      if (mode === 'move') {
+        zone.x = Math.max(0, Math.min(100, px / width * 100));
+        zone.y = Math.max(0, Math.min(100, py / height * 100));
+      } else {
+        const centre = makeMapper(img)(zone.x, zone.y);
+        // Twice the centre-to-handle distance, because `radius` is a diameter.
+        zone.radius = Math.max(20, Math.hypot(px - centre.x, py - centre.y) * 2);
+      }
+      placeZone(zone, node);          // move the one node, do not rebuild the layer
+    };
+    const end = () => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', end);
+      removeEventListener('pointercancel', end);
+      saveNow();
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', end);
+    addEventListener('pointercancel', end);
+  }
+
+  /* --------------------------------------------------------- zone actions -- */
+
+  function select(zid) {
+    selectedId = zid;
+    renderZones();
+    renderPanel();
+  }
+
+  function addZone(xPercent = 50, yPercent = 50) {
+    if (!hasImage()) {
+      msg.replaceChildren(notice(t('needPicture')));
+      return;
+    }
+    const zone = {
+      id: `z${Date.now()}${Math.floor(Math.random() * 1000)}`,
+      x: Math.max(0, Math.min(100, xPercent)),
+      y: Math.max(0, Math.min(100, yPercent)),
+      radius: 220,
+      volume: DEFAULT_VOLUME,
+      startTime: 0,
+      endTime: 0,
+      // A built-in tone by default, so a new spot makes a sound immediately
+      // instead of being silently empty until a file is attached.
+      type: 'generated',
+      sound_name: 'Beep',
+      url: null,
+      effects: { reverbLevel: 0, pitch: 0, lowFreq: 0, midFreq: 0, highFreq: 0, isReversed: false },
+    };
+    model.zones.push(zone);
+    msg.replaceChildren();
+    select(zone.id);
+    saveNow();
+  }
+
+  function removeZone(zid) {
+    model.zones = model.zones.filter((z) => z.id !== zid);
+    if (selectedId === zid) selectedId = null;
+    renderZones();
+    renderPanel();
+    saveNow();
+  }
+
+  // Clicking bare image adds a spot there. This is a shortcut; the button in
+  // the toolbar is the discoverable path, and the hint below the stage says so.
+  img.addEventListener('click', (event) => {
+    if (event.target !== img || !hasImage()) return;
+    const box = img.getBoundingClientRect();
+    const width = img.clientWidth || 1;
+    const height = img.clientHeight || 1;
+    addZone((event.clientX - box.left) / width * 100,
+            (event.clientY - box.top) / height * 100);
+  });
+
+  /* ---------------------------------------------------------------- image -- */
+
   const imageInput = el('input', {
     type: 'file', accept: 'image/*', class: 'hidden',
     onchange: async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      msg.replaceChildren(notice(t('uploading'), 'ok'));
+      status.textContent = t('uploading');
       try {
         const up = await api.upload('image', file);
-        imagePath = up.path; img.src = up.url;
-        await save();
-      } catch (err) { msg.replaceChildren(notice(err.message)); }
+        model.imagePath = up.path;
+        img.src = up.url;
+        msg.replaceChildren();
+        await saveNow();
+        renderPanel();
+      } catch (err) {
+        status.textContent = '';
+        msg.replaceChildren(notice(err.message));
+      }
     },
   });
 
-  /* --- zone editing --- */
-  const redraw = () => {
-    const map = makeMapper(img);
-    layer.replaceChildren(...zones.map((zone, index) => {
-      const centre = map(zone.x, zone.y);
-      const size = Number(zone.radius) || 0;
-      const node = el('div', {
-        class: `zone${selected === index ? ' is-active' : ''}`,
-        style: `left:${centre.x}px;top:${centre.y}px;width:${size}px;height:${size}px`,
-        onpointerdown: (event) => startDrag(event, index, 'move'),
-      },
-        el('span', { class: 'zone-label' }, zone.sound_name || ''),
-        el('div', { class: 'zone-handle', onpointerdown: (e) => startDrag(e, index, 'resize') }),
-        el('button', {
-          class: 'zone-del', 'aria-label': t('removeZone'),
-          onclick: (e) => { e.stopPropagation(); zones.splice(index, 1); selected = null; redraw(); renderPanel(); },
-        }, '✕'));
-      return node;
-    }));
-  };
+  /* ---------------------------------------------------------------- panel -- */
 
-  function startDrag(event, index, mode) {
-    event.preventDefault(); event.stopPropagation();
-    selected = index; renderPanel(); redraw();
-    const box = img.getBoundingClientRect();
-    const move = (ev) => {
-      const px = ev.clientX - box.left;
-      const py = ev.clientY - box.top;
-      if (mode === 'move') {
-        zones[index].x = Math.max(0, Math.min(100, px / img.clientWidth * 100));
-        zones[index].y = Math.max(0, Math.min(100, py / img.clientHeight * 100));
-      } else {
-        const centre = makeMapper(img)(zones[index].x, zones[index].y);
-        // Stored `radius` is a diameter: twice the centre-to-handle distance.
-        zones[index].radius = Math.max(20, Math.hypot(px - centre.x, py - centre.y) * 2);
-      }
-      redraw();
-    };
-    const up = () => {
-      removeEventListener('pointermove', move);
-      removeEventListener('pointerup', up);
-      save();
-    };
-    addEventListener('pointermove', move);
-    addEventListener('pointerup', up);
-  }
-
-  img.addEventListener('click', (event) => {
-    if (event.target !== img) return;
-    const box = img.getBoundingClientRect();
-    zones.push({
-      id: String(Date.now()),
-      x: (event.clientX - box.left) / img.clientWidth * 100,
-      y: (event.clientY - box.top) / img.clientHeight * 100,
-      radius: 220, volume: DEFAULT_VOLUME, startTime: 0, endTime: 0,
-      // Defaults to a built-in tone, so a new zone makes a sound straight away
-      // rather than being silent until a file is attached.
-      type: 'generated', sound_name: 'Beep', url: null,
-      effects: { reverbLevel: 0, pitch: 0, lowFreq: 0, midFreq: 0, highFreq: 0, isReversed: false },
-    });
-    selected = zones.length - 1;
-    redraw(); renderPanel(); save();
-  });
-
-  /* --- side panel --- */
   function slider(labelKey, value, min, max, step, onInput, suffix = '') {
     const out = el('span', {}, String(value) + suffix);
     return el('div', { class: 'slider-row' },
@@ -585,31 +732,57 @@ async function viewEdit(id) {
       el('input', {
         type: 'range', min, max, step, value,
         oninput: (e) => { out.textContent = e.target.value + suffix; onInput(Number(e.target.value)); },
-        onchange: save,
+        onchange: saveNow,
       }));
   }
 
+  function zoneListItem(zone) {
+    return el('button', {
+      class: `zone-row${selectedId === zone.id ? ' is-active' : ''}`,
+      type: 'button',
+      onclick: () => select(zone.id),
+    },
+      el('span', { class: 'zone-row-name' }, zone.sound_name || t('sound')),
+      el('span', { class: 'zone-row-kind' },
+        zone.type === 'generated' ? t('generated') : (zone.url ? t('record') : t('noSoundYet'))));
+  }
+
   function renderPanel() {
-    if (selected == null || !zones[selected]) {
-      panel.replaceChildren(
-        el('h2', {}, t('zones')),
-        el('p', { class: 'muted' }, t('addZone')));
+    const list = el('div', { class: 'zone-list' },
+      ...(model.zones.length
+        ? model.zones.map(zoneListItem)
+        : [el('p', { class: 'muted' }, hasImage() ? t('noZonesYet') : t('needPicture'))]));
+
+    const header = el('div', {},
+      el('h2', {}, `${t('zones')} (${model.zones.length})`),
+      el('button', {
+        class: 'btn btn-primary', type: 'button',
+        disabled: !hasImage(),
+        onclick: () => addZone(),
+      }, '＋ ' + t('addZone')),
+      list);
+
+    const zone = selectedId ? zoneById(selectedId) : null;
+    if (!zone) {
+      panel.replaceChildren(header);
       return;
     }
-    const zone = zones[selected];
-    const soundPicker = buildSoundPicker(zone, async () => { await save(); renderPanel(); },
-                                         (err) => msg.replaceChildren(notice(err)));
 
-    panel.replaceChildren(
-      el('h2', {}, t('zones')),
+    panel.replaceChildren(header,
+      el('hr', { class: 'sep' }),
       el('div', { class: 'field' },
         el('label', { for: 'zname' }, t('zoneName')),
         el('input', {
           type: 'text', id: 'zname', value: zone.sound_name || '',
-          oninput: (e) => { zone.sound_name = e.target.value; redraw(); },
-          onchange: save,
+          oninput: (e) => {
+            zone.sound_name = e.target.value;
+            const node = layer.querySelector(`[data-zone="${zone.id}"] .zone-label`);
+            if (node) node.textContent = e.target.value;
+            saveSoon();
+          },
         })),
-      soundPicker,
+      buildSoundPicker(zone, async () => { await saveNow(); renderZones(); renderPanel(); },
+                       (err) => msg.replaceChildren(notice(err))),
       slider('volume', Math.round((zone.volume ?? DEFAULT_VOLUME) * 100), 0, 100, 1,
         (v) => { zone.volume = v / 100; }, '%'),
       slider('reverb', zone.effects.reverbLevel || 0, 0, 100, 1,
@@ -622,33 +795,38 @@ async function viewEdit(id) {
         (v) => { zone.effects.midFreq = v; }),
       slider('highFreq', zone.effects.highFreq || 0, -20, 20, 0.5,
         (v) => { zone.effects.highFreq = v; }),
-      slider('startTime', zone.startTime || 0, 0, 60, 0.1,
-        (v) => { zone.startTime = v; }, 's'),
-      slider('endTime', zone.endTime || 0, 0, 60, 0.1,
-        (v) => { zone.endTime = v; }, 's'),
       el('button', {
-        class: 'btn btn-danger',
-        onclick: () => { zones.splice(selected, 1); selected = null; redraw(); renderPanel(); save(); },
+        class: 'btn btn-danger', type: 'button',
+        onclick: () => removeZone(zone.id),
       }, t('removeZone')));
   }
 
-  img.addEventListener('load', redraw);
-  if (img.complete) redraw();
-  addEventListener('resize', redraw, { passive: true });
+  /* ----------------------------------------------------------------- mount -- */
+
+  const relayout = () => renderZones();
+  img.addEventListener('load', relayout);
+  if (img.complete && img.naturalWidth) relayout();
+  addEventListener('resize', relayout, { passive: true });
+
   renderPanel();
 
   show(el('div', { class: 'page' },
     el('div', { class: 'row' },
       el('a', { class: 'btn', href: '#/' }, t('back')),
       el('a', { class: 'btn', href: `#/play/${id}` }, t('open')),
-      el('button', { class: 'btn btn-ok row-end', onclick: save }, t('save'))),
+      el('button', { class: 'btn', type: 'button', onclick: () => imageInput.click() },
+        hasImage() ? t('changePicture') : t('choosePicture')),
+      imageInput,
+      el('button', {
+        class: 'btn btn-primary', type: 'button',
+        onclick: () => addZone(),
+      }, '＋ ' + t('addZone')),
+      el('span', { class: 'row-end' }, status),
+      el('button', { class: 'btn btn-ok', type: 'button', onclick: saveNow }, t('save'))),
     msg,
     el('div', { class: 'field' },
       el('label', { for: 'cname' }, t('nameThis')), nameInput),
-    el('div', { class: 'toolbar' },
-      el('button', { class: 'btn', onclick: () => imageInput.click() }, t('choosePicture')),
-      imageInput),
-    el('p', { class: 'muted' }, t('addZone')),
+    el('p', { class: 'muted' }, hasImage() ? t('clickToAdd') : t('needPicture')),
     el('div', { class: 'editor-grid' }, stage, panel)));
 }
 

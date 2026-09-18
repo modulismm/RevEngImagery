@@ -274,3 +274,28 @@ th { color: var(--text-dim); font-size: .85rem; text-transform: uppercase; lette
 @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
 .rec-time { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.2rem; }
 audio { width: 100%; margin-top: 10px; }
+
+/* --- editor: zone list and save state ----------------------------------- */
+.save-state { color: var(--text-dim); font-size: .9rem; min-width: 8ch; }
+.sep { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
+
+.zone-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.zone-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 48px; padding: 10px 14px; width: 100%;
+  background: var(--surface-2); color: var(--text);
+  border: 2px solid var(--border-strong); border-radius: var(--radius);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.zone-row:hover { background: var(--border); }
+.zone-row.is-active { border-color: var(--accent); background: rgba(124,108,246,.2); }
+.zone-row-name { font-weight: 600; }
+.zone-row-kind { font-size: .8rem; color: var(--text-dim); white-space: nowrap; }
+
+/* The stage is the drop target for new spots: make that visible. */
+.stage-wrap { cursor: crosshair; }
+.stage-wrap .zone { cursor: grab; }
+.stage-wrap .zone:active { cursor: grabbing; }
+
+.bank-item { display: flex; flex-direction: column; gap: 6px; }
+.bank-item audio { height: 34px; margin: 0; }

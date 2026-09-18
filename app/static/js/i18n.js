@@ -44,11 +44,17 @@ const STRINGS = {
     changePassphrase: 'Change my passphrase', currentPassphrase: 'Current passphrase',
     newPassphrase: 'New passphrase', language: 'Language',
     soundFor: 'Sound for this spot', record: 'Record', upload: 'Use a file',
-    generated: 'Built-in', startRecording: 'Start recording', stopRecording: 'Stop',
+    generated: 'Tones', bank: 'Sound bank', startRecording: 'Start recording', stopRecording: 'Stop',
     recording: 'Recording…', recordAgain: 'Record again', useThis: 'Use this sound',
     discard: 'Discard', micBlocked: 'The browser blocked the microphone.',
     noSoundYet: 'No sound chosen yet.', currentSound: 'Current sound',
     preview: 'Listen', tabRecordHint: 'Speak or play something, then press Stop.',
+    bankEmpty: 'The sound bank is not installed.', loadingBank: 'Loading sounds…',
+    saving: 'Saving…', resizeZone: 'Drag to resize',
+    needPicture: 'Choose a picture first, then add sound spots to it.',
+    noZonesYet: 'No sound spots yet. Use the button above, or click the picture.',
+    clickToAdd: 'Click anywhere on the picture to add a sound spot there.',
+    changePicture: 'Change the picture',
     loading: 'Loading…', somethingWrong: 'Something went wrong. Please try again.',
   },
   fr: {
@@ -71,9 +77,9 @@ const STRINGS = {
     createFirst: 'Créez votre première image',
     choosePicture: 'Choisir une image', uploading: 'Envoi en cours…',
     nameThis: 'Donnez-lui un nom',
-    addZone: 'Ajouter une zone sonore', zones: 'Zones sonores',
+    addZone: 'Ajouter une zone', zones: 'Zones sonores',
     zoneName: 'Nom de ce son', chooseSound: 'Choisir un fichier son',
-    volume: 'Volume', reverb: 'Écho', pitch: 'Hauteur',
+    volume: 'Volume', reverb: 'Réverbération', pitch: 'Hauteur du son',
     lowFreq: 'Sons graves', midFreq: 'Sons moyens', highFreq: 'Sons aigus',
     startTime: 'Commencer à', endTime: 'Arrêter à', seconds: 'secondes',
     removeZone: 'Retirer cette zone sonore',
@@ -87,37 +93,60 @@ const STRINGS = {
     lastSeen: 'Dernière utilisation', never: 'jamais', pending: 'ne s’est pas encore connecté',
     changePassphrase: 'Changer ma phrase secrète', currentPassphrase: 'Phrase secrète actuelle',
     newPassphrase: 'Nouvelle phrase secrète', language: 'Langue',
-    soundFor: 'Son de cette zone', record: 'Enregistrer', upload: 'Utiliser un fichier',
-    generated: 'Sons intégrés', startRecording: 'Commencer l’enregistrement', stopRecording: 'Arrêter',
+    soundFor: 'Son de cette zone', record: 'Micro', upload: 'Fichier',
+    generated: 'Tonalités', bank: 'Banque de sons', startRecording: 'Démarrer l’enregistrement', stopRecording: 'Arrêter',
     recording: 'Enregistrement en cours…', recordAgain: 'Enregistrer à nouveau', useThis: 'Utiliser ce son',
-    discard: 'Supprimer', micBlocked: 'Le navigateur a bloqué le microphone.',
-    noSoundYet: 'Aucun son choisi pour le moment.', currentSound: 'Son actuel',
+    discard: 'Jeter', micBlocked: 'Ce navigateur ne peut pas enregistrer. Utilisez plutôt un fichier.',
+    noSoundYet: 'Aucun son choisi.', currentSound: 'Son actuel',
     preview: 'Écouter', tabRecordHint: 'Parlez ou jouez quelque chose, puis appuyez sur Arrêter.',
+    bankEmpty: 'La banque de sons n’est pas installée.', loadingBank: 'Chargement des sons…',
+    saving: 'Enregistrement…', resizeZone: 'Faites glisser pour redimensionner',
+    needPicture: 'Choisissez d’abord une image, puis ajoutez-y des zones sonores.',
+    noZonesYet: 'Aucune zone sonore pour l’instant. Utilisez le bouton ci-dessus, ou cliquez sur l’image.',
+    clickToAdd: 'Cliquez n’importe où sur l’image pour y ajouter une zone sonore.',
+    changePicture: 'Changer l’image',
     loading: 'Chargement…', somethingWrong: 'Une erreur est survenue. Veuillez réessayer.',
   },
 };
 
 export const LANGS = Object.keys(STRINGS);
 
-let current = localStorage.getItem('imagery_lang')
-  || (navigator.language || 'en').slice(0, 2).toLowerCase();
-if (!STRINGS[current]) current = 'en';
+/* French is the default, full stop. Only a choice the person made themselves --
+ * via the language picker, remembered here -- overrides it. Deferring to
+ * navigator.language was tried and removed: it meant an English-configured
+ * laptop silently got English, which is not what "French by default" means. */
+export const DEFAULT_LANG = 'fr';
+
+/* localStorage throws in a private window, with site data blocked, and in some
+ * embedded webviews. Reading it at module load without a guard would take the
+ * whole app down, so both directions are wrapped. */
+function readStored() {
+  try { return localStorage.getItem('imagery_lang') || ''; } catch (_) { return ''; }
+}
+
+function writeStored(value) {
+  try { localStorage.setItem('imagery_lang', value); } catch (_) { /* nothing to do */ }
+}
+
+let current = readStored();
+if (!STRINGS[current]) current = DEFAULT_LANG;
 
 export function lang() { return current; }
 
 export function setLang(next) {
   if (!STRINGS[next]) return;
   current = next;
-  try { localStorage.setItem('imagery_lang', next); } catch (_) {}
+  writeStored(next);
   document.documentElement.lang = next;
 }
 
 export function t(key, vars) {
-  const table = STRINGS[current] || STRINGS.en;
+  const table = STRINGS[current] || STRINGS[DEFAULT_LANG];
   let out = table[key];
   if (out === undefined) {
     console.warn('[i18n] missing key', key, 'for', current);
-    out = STRINGS.en[key] !== undefined ? STRINGS.en[key] : key;
+    const fallback = STRINGS[DEFAULT_LANG][key];
+    out = fallback !== undefined ? fallback : key;
   }
   if (vars) for (const k of Object.keys(vars)) out = out.replace(`{${k}}`, vars[k]);
   return out;
