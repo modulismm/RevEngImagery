@@ -12,8 +12,7 @@ out, and know what a rebuild would cost.
 The work comes from a *cahier de charges* for the technical tooling used in art-mediation
 workshops with older participants. Imagery is the gallery those workshops use:
 <https://imagery.base44.app/Gallery>, a public page, no password, run by someone on the
-internal team. The brief allots **two weeks and 30 hours**, shared with a second tool that is
-not part of this repo and is not covered here.
+internal team. The brief allots **two weeks and 30 hours**.
 
 Imagery is fine on a laptop and needs nothing there. Everything asked for is either an iPad
 problem or a new feature.
