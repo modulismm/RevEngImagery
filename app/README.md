@@ -76,16 +76,22 @@ docker run -d --name imagery-test -p 127.0.0.1:8011:8000 \
   -e IMAGERY_ADMIN=bear -e IMAGERY_ADMIN_PASSPHRASE='the blue kettle sings' \
   -e IMAGERY_SECURE_COOKIE=0 imagery:dev
 python3 tests/smoke.py http://127.0.0.1:8011
+
+# editor tests, under jsdom
+docker run --rm -v "$PWD":/app -w /app node:22-slim \
+  sh -c "npm i --no-save jsdom >/dev/null 2>&1 && node tests/dom.test.mjs"
 ```
 
 ## What is verified, and what is not
 
-**Verified here:** 18 unit tests and 15 end-to-end tests, all passing, plus five
-consecutive cold boots on a fresh volume.
+**Verified here:** 58 backend tests, 18 DOM tests under jsdom and 15 end-to-end
+tests against a running container, all passing, plus five consecutive cold boots
+on a fresh volume.
 
-**Not verified here:** *anything in the browser.* This host has no JavaScript
-runtime, so the interface -- the canvas editor, drag and resize, and the audio
-engine itself -- has never been executed. The audio graph is transcribed exactly
+**Not verified here:** *anything in a real browser.* jsdom runs the editor's own
+modules against a real DOM, which catches wiring bugs, but it has no layout, no
+touch and no audio -- so drag and resize on an actual iPad, and the audio engine
+itself, have still never been executed. The audio graph is transcribed exactly
 from the original's recovered parameters and the shapes are covered by the
 server-side round-trip tests, but **it needs someone to open it and listen.**
 

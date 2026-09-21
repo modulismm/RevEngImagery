@@ -15,3 +15,12 @@ app/static/sounds/_raw/*.opus
 app/static/sounds/_raw/*.flac
 !app/static/sounds/_raw/manifest.json
 !app/static/sounds/*.mp3
+
+# Test-run leavings. The DOM tests install jsdom into the working copy and the
+# backend tests are run inside a container over a bind mount, so both drop
+# artefacts here that belong to a run, not to the repo.
+app/node_modules/
+package-lock.json
+__pycache__/
+*.pyc
+.env
