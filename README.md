@@ -10,12 +10,10 @@ out, and know what a rebuild would cost.
 ## The mandate
 
 The work comes from a *cahier de charges* for the technical tooling used in art-mediation
-workshops with older participants. Two tools, **two weeks, 30 hours**:
-
-- **Imagery** -- <https://imagery.base44.app/Gallery>, the gallery the workshops use.
-  A public page, no password, run by someone on the internal team. This repo.
-- **Photo IA** -- AI photo processing at `images.sporobole.org`, reached by URL and a QR
-  code, run by someone outside the project. **Not in this repo** -- see below.
+workshops with older participants. Imagery is the gallery those workshops use:
+<https://imagery.base44.app/Gallery>, a public page, no password, run by someone on the
+internal team. The brief allots **two weeks and 30 hours**, shared with a second tool that is
+not part of this repo and is not covered here.
 
 Imagery is fine on a laptop and needs nothing there. Everything asked for is either an iPad
 problem or a new feature.
@@ -62,15 +60,6 @@ musicbox, rain on a window.
 > is a documented rebuild step. If Drive specifically is what the team wants as the drop-off
 > point, that is the piece still to build.
 
-### Photo IA -- not in this repo
-
-The second tool in the brief is separate and untouched here. Both items are open:
-
-| Asked for | Blocked on |
-|---|---|
-| **Access autonomy** -- open and close the tool without going through the person who runs it, so workshops and tests do not depend on their availability | Modality undecided: a separate account, or an on/off switch. Needs that tool's dev. |
-| **Automatic downsize** of images participants upload | No size or resolution threshold set, and no decision on whether it applies to the final image or only to a working copy |
-
 ### Still to settle
 
 - **Who curates the sound bank** after the initial set -- selection, organisation, additions.
@@ -78,7 +67,6 @@ The second tool in the brief is separate and untouched here. Both items are open
 - **Categories** were deliberately not fixed in advance; they follow what participants ask
   for. The bank is a flat searchable list today, with a French and English label per sound.
   Grouping can be added once the categories are known.
-- The two Photo IA questions above.
 
 ## Where this stands
 
