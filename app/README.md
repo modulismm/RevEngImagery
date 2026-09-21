@@ -114,9 +114,9 @@ Security notes specific to this:
 
 ## Sound bank
 
-25 short sounds under `static/sounds/`, listed in `bank.json`, searchable in the
+30 short sounds under `static/sounds/`, listed in `bank.json`, searchable in the
 editor. Three are permissively licensed recordings from Wikimedia Commons; the
-other 22 are synthesised by `tools/make_sounds.py` and are CC0. Rebuild with:
+other 27 are synthesised by `tools/make_sounds.py` and are CC0. Rebuild with:
 
 ```bash
 python3 tools/make_sounds.py app/static/sounds/_raw     # synthesise
